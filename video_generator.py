@@ -204,7 +204,7 @@ def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, res
         # 静音模式：不生成任何音频
         generate_audio = False
     
-    # 调用即梦Seedance API
+    # 构建API Payload
     payload = {
         "model": SEEDANCE_MODEL,
         "content": [
@@ -220,6 +220,26 @@ def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, res
         "duration": SHOT_DURATION,
         "generate_audio": generate_audio
     }
+
+    # -------- Dry Run 模式：只输出不调API --------
+    if DRY_RUN:
+        print(f"\n{'='*60}")
+        print(f"🧪 DRY RUN - 分镜{shot_id}")
+        print(f"{'='*60}")
+        print(f"📐 配置: {resolution} / {aspect_ratio} / {SHOT_DURATION}s / audio={generate_audio}")
+        print(f"👥 角色: {shot_roles}")
+        if global_char_mapping:
+            print(f"🔗 角色映射: {global_char_mapping}")
+        if ref_images:
+            print(f"🖼️  参考图: {len(ref_images)} 张")
+        print(f"\n📝 完整提示词:\n{'-'*40}\n{full_prompt}\n{'-'*40}")
+        print(f"\n📦 API Payload (不含图片):")
+        safe_payload = {k: v for k, v in payload.items() if k != 'reference_images'}
+        safe_payload['reference_images_count'] = len(payload.get('reference_images', []))
+        print(json.dumps(safe_payload, ensure_ascii=False, indent=2))
+        print(f"{'='*60}\n")
+        return True
+    # ------------------------------------
 
     headers = {
         "Authorization": f"Bearer {SEEDANCE_API_KEY}",
@@ -405,6 +425,17 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
                 dialogue = shot.get('dialogue', [])
                 if dialogue:
                     global_voice_mapping = resource_mapping.get('global_voice_mapping', {}) if resource_mapping else {}
+
+                    if DRY_RUN:
+                        print(f"\n🧪 DRY RUN TTS - 分镜{shot['shot_id']}:")
+                        for d_entry in dialogue:
+                            role = d_entry.get('role', '')
+                            text = d_entry.get('text', '').strip()
+                            if text:
+                                voice_id = global_voice_mapping.get(role, 'xiaoyun')
+                                print(f"  🎤 {role} (声线:{voice_id}): \"{text}\"")
+                        continue
+
                     tts_service = get_tts_service()
                     shot_audio_files = []
 
@@ -460,19 +491,21 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
                 video_file = f"{output_dir}/shot_{shot_id:03d}.mp4"
                 
                 if os.path.exists(video_file) and os.path.exists(tts_audio):
-                    # 替换视频音频为TTS音频
+                    # 将TTS对话与原视频背景音混合（保留背景音）
                     output_video = f"{output_dir}/shot_{shot_id:03d}_with_tts.mp4"
                     try:
-                        AudioProcessor.replace_video_audio(
+                        AudioProcessor.mix_audio_to_video(
                             video_path=video_file,
-                            new_audio_path=tts_audio,
-                            output_path=output_video
+                            tts_audio_path=tts_audio,
+                            output_path=output_video,
+                            bg_volume=0.3,
+                            tts_volume=1.0
                         )
                         
                         # 替换原文件
                         if os.path.exists(output_video):
                             os.replace(output_video, video_file)
-                            print(f"✅ 分镜{shot_id} TTS配音完成")
+                            print(f"✅ 分镜{shot_id} TTS配音+背景音混合完成")
                     except Exception as e:
                         print(f"❌ 分镜{shot_id} TTS配音失败: {e}")
         

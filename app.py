@@ -7,6 +7,7 @@ AI短剧自动生成系统 - 商业化Web界面
 import streamlit as st
 import json
 import os
+import time
 import requests
 from pathlib import Path
 from datetime import datetime
@@ -830,6 +831,17 @@ elif current_step == 1:
         if st.button("← 上一步", use_container_width=True):
             st.session_state.current_step = 0
             st.rerun()
+    with col6:
+        if st.button("🧪 加载示例分镜", use_container_width=True, help="跳过LLM调用，直接加载示例分镜数据测试完整流程"):
+            sample_path = Path("./test/sample_shots.json")
+            if sample_path.exists():
+                with open(sample_path, 'r', encoding='utf-8') as f:
+                    st.session_state.shots = json.load(f)
+                st.success(f"✅ 已加载 {len(st.session_state.shots)} 个示例分镜（零Token消耗）")
+                st.session_state.current_step = 2
+                st.rerun()
+            else:
+                st.error("示例分镜文件不存在: test/sample_shots.json")
     with col7:
         if st.button("生成分镜 →", type="primary", use_container_width=True):
             if not st.session_state.script_content.strip():
@@ -847,8 +859,7 @@ elif current_step == 1:
                         # 显示进度信息
                         progress_text = st.empty()
                         progress_text.info("📡 正在连接AI服务...")
-                        
-                        import time
+
                         start_time = time.time()
                         
                         shots = generate_shots_from_script(

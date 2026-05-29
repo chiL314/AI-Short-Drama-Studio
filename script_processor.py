@@ -125,7 +125,7 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
        "shot_id": 分镜编号(从1开始)
        "shot_prompt": 纯视频提示词(只写画面、动作、表情、光影、镜头)
        "roles": 本镜头出场的角色名数组(如["男主A", "女主B"])
-       "dialogue": 本镜头对话数组，格式 [{"role": "角色名", "text": "对话内容"}]
+       "dialogue": 本镜头对话数组，格式 [{{"role": "角色名", "text": "对话内容"}}]
        如果没有对话，dialogue 为空数组 []
     3. 绝对不允许输出任何JSON以外的内容
     4. dialogue中每条对话必须简短精炼（10字以内），符合短视频节奏

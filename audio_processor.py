@@ -90,7 +90,100 @@ class AudioProcessor:
         except Exception as e:
             print(f"❌ 音频合并失败: {e}")
             raise
-    
+
+    @staticmethod
+    def extract_audio(
+        video_path: str,
+        output_path: str
+    ) -> str:
+        """从视频中提取音频轨道
+
+        Args:
+            video_path: 视频文件路径
+            output_path: 输出音频路径（WAV格式）
+
+        Returns:
+            音频文件路径
+        """
+        if not AudioProcessor.check_ffmpeg():
+            raise RuntimeError("未找到FFmpeg，请先安装FFmpeg")
+
+        ffmpeg_path = AudioProcessor.get_ffmpeg_path()
+        cmd = [
+            ffmpeg_path, '-y',
+            '-i', video_path,
+            '-vn',
+            '-acodec', 'pcm_s16le',
+            output_path
+        ]
+
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+            if result.returncode == 0:
+                print(f"🎵 音频提取成功: {output_path}")
+                return output_path
+            else:
+                error_msg = result.stderr.decode('utf-8')
+                raise RuntimeError(f"FFmpeg音频提取失败: {error_msg}")
+        except Exception as e:
+            print(f"❌ 音频提取失败: {e}")
+            raise
+
+    @staticmethod
+    def mix_audio_to_video(
+        video_path: str,
+        tts_audio_path: str,
+        output_path: str,
+        bg_volume: float = 0.3,
+        tts_volume: float = 1.0
+    ) -> str:
+        """将TTS对话音轨与原视频背景音混合后写回视频
+
+        保留原视频的背景音（降低音量），叠加TTS对话。
+
+        Args:
+            video_path: 原视频路径
+            tts_audio_path: TTS对话音频路径
+            output_path: 输出视频路径
+            bg_volume: 背景音量（0.0-1.0，默认0.3）
+            tts_volume: TTS对话音量（0.0-1.0，默认1.0）
+
+        Returns:
+            输出视频路径
+        """
+        if not AudioProcessor.check_ffmpeg():
+            raise RuntimeError("未找到FFmpeg，请先安装FFmpeg")
+
+        ffmpeg_path = AudioProcessor.get_ffmpeg_path()
+        cmd = [
+            ffmpeg_path, '-y',
+            '-i', video_path,
+            '-i', tts_audio_path,
+            '-filter_complex',
+            f'[0:a]volume={bg_volume}[bg];[1:a]volume={tts_volume}[tts];[bg][tts]amix=inputs=2:duration=first:dropout_transition=3[out]',
+            '-map', '0:v:0',
+            '-map', '[out]',
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-shortest',
+            output_path
+        ]
+
+        print(f"🎬 混音写入视频: {os.path.basename(video_path)} (背景音={bg_volume}, TTS={tts_volume})")
+
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            if result.returncode == 0:
+                print(f"✅ 混音写入成功: {output_path}")
+                return output_path
+            else:
+                error_msg = result.stderr.decode('utf-8')
+                raise RuntimeError(f"FFmpeg混音写入失败: {error_msg}")
+        except Exception as e:
+            print(f"❌ 混音写入失败: {e}")
+            raise
+
     @staticmethod
     def replace_video_audio(
         video_path: str,

@@ -34,6 +34,10 @@ MAX_RETRY = 3
 # API请求间隔（秒，防止限流）
 API_INTERVAL = 3
 
+# ===================== 调试配置 =====================
+# 模拟运行模式：跳过所有API调用，仅输出完整prompt和payload到日志
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
+
 # ===================== 资源池配置 =====================
 RESOURCE_POOL_DIR = "./resource_pool"  # 资源池根目录
 
