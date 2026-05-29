@@ -12,6 +12,7 @@ from pathlib import Path
 from datetime import datetime
 
 # 导入现有模块
+import config
 from config import *
 from character_pool import CharacterPool
 from scene_pool import ScenePool
@@ -144,7 +145,8 @@ if 'tts_config' not in st.session_state:
         'voice_mapping': {}  # 角色名 -> 音色ID
     }
 if 'config' not in st.session_state:
-    # 从文件加载已保存的配置
+    # API密钥统一从 .env 读取（config.py），不从 api_config.json 读取
+    # api_config.json 只存储非敏感配置（模型名/URL/画风等）
     config_path = Path("./api_config.json")
     if config_path.exists():
         with open(config_path, 'r', encoding='utf-8') as f:
@@ -164,12 +166,9 @@ if 'config' not in st.session_state:
             'action_prompt_template': '',
             'export_mode': 'shots'
         }
-        # 更新全局配置
-        import config
-        config.DEEPSEEK_API_KEY = saved_api_config.get('deepseek_api_key', DEEPSEEK_API_KEY)
+        # 非敏感配置从 api_config.json 加载（模型名/URL等）
         config.DEEPSEEK_API_URL = saved_api_config.get('deepseek_api_url', DEEPSEEK_API_URL)
         config.DEEPSEEK_MODEL = saved_api_config.get('deepseek_model', DEEPSEEK_MODEL)
-        config.SEEDANCE_API_KEY = saved_api_config.get('seedance_api_key', SEEDANCE_API_KEY)
         config.SEEDANCE_API_URL = saved_api_config.get('seedance_api_url', SEEDANCE_API_URL)
         config.SEEDANCE_MODEL = saved_api_config.get('seedance_model', SEEDANCE_MODEL)
     else:
@@ -201,35 +200,59 @@ if 'show_image_dialog' not in st.session_state:
 
 
 # ==================== 工具函数 ====================
-def save_api_config(deepseek_api_key, deepseek_api_url, deepseek_model,
-                   seedance_api_key, seedance_api_url, seedance_model,
+def _update_env_var(key: str, value: str):
+    """更新.env文件中的单个环境变量"""
+    env_path = Path("./.env")
+    lines = []
+    if env_path.exists():
+        with open(env_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+    found = False
+    for i, line in enumerate(lines):
+        if line.startswith(f"{key}="):
+            lines[i] = f"{key}={value}\n"
+            found = True
+            break
+
+    if not found:
+        lines.append(f"{key}={value}\n")
+
+    with open(env_path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+
+
+def save_api_keys_to_env(deepseek_api_key: str, seedance_api_key: str):
+    """保存API密钥到.env文件（密钥的唯一存储位置）"""
+    _update_env_var("DEEPSEEK_API_KEY", deepseek_api_key)
+    _update_env_var("SEEDANCE_API_KEY", seedance_api_key)
+    config.DEEPSEEK_API_KEY = deepseek_api_key
+    config.SEEDANCE_API_KEY = seedance_api_key
+
+
+def save_api_config(deepseek_api_url, deepseek_model,
+                   seedance_api_url, seedance_model,
                    base_style_prompt="", tts_config=None):
-    """保存API配置到本地文件"""
+    """保存非敏感API配置到本地文件（密钥不存这里，通过.env管理）"""
     config_data = {
-        "deepseek_api_key": deepseek_api_key,
         "deepseek_api_url": deepseek_api_url,
         "deepseek_model": deepseek_model,
-        "seedance_api_key": seedance_api_key,
         "seedance_api_url": seedance_api_url,
         "seedance_model": seedance_model,
         "base_style_prompt": base_style_prompt,
         "tts_config": tts_config or {},
         "saved_at": datetime.now().isoformat()
     }
-    
+
     config_path = Path("./api_config.json")
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, ensure_ascii=False, indent=2)
-    
-    # 更新全局配置
-    import config
-    config.DEEPSEEK_API_KEY = deepseek_api_key
+
     config.DEEPSEEK_API_URL = deepseek_api_url
     config.DEEPSEEK_MODEL = deepseek_model
-    config.SEEDANCE_API_KEY = seedance_api_key
     config.SEEDANCE_API_URL = seedance_api_url
     config.SEEDANCE_MODEL = seedance_model
-    
+
     return True
 
 
@@ -331,39 +354,37 @@ if st.session_state.show_api_config:
             with col1:
                 ds_api_key = st.text_input(
                     "API密钥",
-                    value=saved_config.get('deepseek_api_key', DEEPSEEK_API_KEY) if saved_config else DEEPSEEK_API_KEY,
+                    value=config.DEEPSEEK_API_KEY,
                     type="password",
-                    help="用于分镜生成的API密钥"
+                    help="用于分镜生成的API密钥（保存在.env文件中）"
                 )
                 ds_api_url = st.text_input(
                     "API地址",
-                    value=saved_config.get('deepseek_api_url', DEEPSEEK_API_URL) if saved_config else DEEPSEEK_API_URL,
+                    value=saved_config.get('deepseek_api_url', config.DEEPSEEK_API_URL) if saved_config else config.DEEPSEEK_API_URL,
                     help="例如：https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
                 )
             with col2:
                 ds_model = st.text_input(
                     "模型名称",
-                    value=saved_config.get('deepseek_model', DEEPSEEK_MODEL) if saved_config else DEEPSEEK_MODEL,
+                    value=saved_config.get('deepseek_model', config.DEEPSEEK_MODEL) if saved_config else config.DEEPSEEK_MODEL,
                     help="例如：qwen3.5-flash"
                 )
-            
+
             ds_submitted = st.form_submit_button("💾 保存分镜模型配置", type="primary", use_container_width=True)
-            
+
             if ds_submitted:
                 if ds_api_key:
                     try:
+                        save_api_keys_to_env(ds_api_key, config.SEEDANCE_API_KEY)
                         save_api_config(
-                            deepseek_api_key=ds_api_key,
                             deepseek_api_url=ds_api_url,
                             deepseek_model=ds_model,
-                            seedance_api_key=saved_config.get('seedance_api_key', SEEDANCE_API_KEY) if saved_config else SEEDANCE_API_KEY,
-                            seedance_api_url=saved_config.get('seedance_api_url', SEEDANCE_API_URL) if saved_config else SEEDANCE_API_URL,
-                            seedance_model=saved_config.get('seedance_model', SEEDANCE_MODEL) if saved_config else SEEDANCE_MODEL,
+                            seedance_api_url=saved_config.get('seedance_api_url', config.SEEDANCE_API_URL) if saved_config else config.SEEDANCE_API_URL,
+                            seedance_model=saved_config.get('seedance_model', config.SEEDANCE_MODEL) if saved_config else config.SEEDANCE_MODEL,
                             tts_config=saved_config.get('tts_config', {}) if saved_config else {}
                         )
                         st.session_state.api_config_saved = True
                         st.success("✅ 分镜模型配置已保存！")
-                        time.sleep(1)
                         st.session_state.show_api_config = False
                         st.rerun()
                     except Exception as e:
@@ -377,40 +398,38 @@ if st.session_state.show_api_config:
             with col3:
                 sd_api_key = st.text_input(
                     "API密钥",
-                    value=saved_config.get('seedance_api_key', SEEDANCE_API_KEY) if saved_config else SEEDANCE_API_KEY,
+                    value=config.SEEDANCE_API_KEY,
                     type="password",
                     key="seedance_api_key_input",
-                    help="用于视频生成的API密钥"
+                    help="用于视频生成的API密钥（保存在.env文件中）"
                 )
                 sd_api_url = st.text_input(
                     "API地址",
-                    value=saved_config.get('seedance_api_url', SEEDANCE_API_URL) if saved_config else SEEDANCE_API_URL,
+                    value=saved_config.get('seedance_api_url', config.SEEDANCE_API_URL) if saved_config else config.SEEDANCE_API_URL,
                     help="例如：https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks"
                 )
             with col4:
                 sd_model = st.text_input(
                     "模型名称",
-                    value=saved_config.get('seedance_model', SEEDANCE_MODEL) if saved_config else SEEDANCE_MODEL,
+                    value=saved_config.get('seedance_model', config.SEEDANCE_MODEL) if saved_config else config.SEEDANCE_MODEL,
                     help="例如：doubao-seedance-1-0-pro-250528"
                 )
-            
+
             sd_submitted = st.form_submit_button("💾 保存视频模型配置", type="primary", use_container_width=True)
-            
+
             if sd_submitted:
                 if sd_api_key:
                     try:
+                        save_api_keys_to_env(config.DEEPSEEK_API_KEY, sd_api_key)
                         save_api_config(
-                            deepseek_api_key=saved_config.get('deepseek_api_key', DEEPSEEK_API_KEY) if saved_config else DEEPSEEK_API_KEY,
-                            deepseek_api_url=saved_config.get('deepseek_api_url', DEEPSEEK_API_URL) if saved_config else DEEPSEEK_API_URL,
-                            deepseek_model=saved_config.get('deepseek_model', DEEPSEEK_MODEL) if saved_config else DEEPSEEK_MODEL,
-                            seedance_api_key=sd_api_key,
+                            deepseek_api_url=saved_config.get('deepseek_api_url', config.DEEPSEEK_API_URL) if saved_config else config.DEEPSEEK_API_URL,
+                            deepseek_model=saved_config.get('deepseek_model', config.DEEPSEEK_MODEL) if saved_config else config.DEEPSEEK_MODEL,
                             seedance_api_url=sd_api_url,
                             seedance_model=sd_model,
                             tts_config=saved_config.get('tts_config', {}) if saved_config else {}
                         )
                         st.session_state.api_config_saved = True
                         st.success("✅ 视频模型配置已保存！")
-                        time.sleep(1)
                         st.session_state.show_api_config = False
                         st.rerun()
                     except Exception as e:
@@ -582,14 +601,12 @@ if st.session_state.show_api_config:
                 # 更新session_state
                 st.session_state.tts_config = tts_config
                 
-                # 保存到文件
+                # 保存到文件（密钥通过.env管理，此处只保存非敏感配置）
                 save_api_config(
-                    deepseek_api_key=saved_config.get('deepseek_api_key', DEEPSEEK_API_KEY) if saved_config else DEEPSEEK_API_KEY,
-                    deepseek_api_url=saved_config.get('deepseek_api_url', DEEPSEEK_API_URL) if saved_config else DEEPSEEK_API_URL,
-                    deepseek_model=saved_config.get('deepseek_model', DEEPSEEK_MODEL) if saved_config else DEEPSEEK_MODEL,
-                    seedance_api_key=saved_config.get('seedance_api_key', SEEDANCE_API_KEY) if saved_config else SEEDANCE_API_KEY,
-                    seedance_api_url=saved_config.get('seedance_api_url', SEEDANCE_API_URL) if saved_config else SEEDANCE_API_URL,
-                    seedance_model=saved_config.get('seedance_model', SEEDANCE_MODEL) if saved_config else SEEDANCE_MODEL,
+                    deepseek_api_url=saved_config.get('deepseek_api_url', config.DEEPSEEK_API_URL) if saved_config else config.DEEPSEEK_API_URL,
+                    deepseek_model=saved_config.get('deepseek_model', config.DEEPSEEK_MODEL) if saved_config else config.DEEPSEEK_MODEL,
+                    seedance_api_url=saved_config.get('seedance_api_url', config.SEEDANCE_API_URL) if saved_config else config.SEEDANCE_API_URL,
+                    seedance_model=saved_config.get('seedance_model', config.SEEDANCE_MODEL) if saved_config else config.SEEDANCE_MODEL,
                     tts_config=tts_config
                 )
                 
@@ -1378,287 +1395,220 @@ elif current_step == 3:
 
     
     st.divider()
-    
-    st.markdown("### 🔗 为分镜关联资源")
-    st.info("💡 提示：点击分镜中的角色名，可以选择映射到资源池中的对应资源")
-    
-    for i, shot in enumerate(st.session_state.shots):
-        with st.expander(f"📽️ 分镜 {shot['shot_id']}", expanded=(i==0)):
-            shot_prompt = shot.get('shot_prompt', '')
-            roles_in_shot = shot.get('roles', [])
-            
-            st.markdown(f"**分镜提示词**: {shot_prompt}")
-            
-            if roles_in_shot:
-                st.markdown("**分镜中的角色/场景/物品：**")
-                
-                # 检查是否启用TTS模式
-                audio_mode = st.session_state.config.get('audio_mode', 'tts')
-                use_tts = (audio_mode == 'tts')
-                
-                # 显示角色并允许映射
-                for role_name in roles_in_shot:
-                    col_role, col_select = st.columns([1, 3])
-                    
-                    with col_role:
-                        # 检测资源池中是否有该角色
+
+    # ========== 收集所有分镜中的唯一角色名 ==========
+    all_shot_roles = set()
+    for shot in st.session_state.shots:
+        all_shot_roles.update(shot.get('roles', []))
+    all_shot_roles = sorted(all_shot_roles)
+
+    # 初始化全局角色映射 session state
+    if 'global_char_mapping' not in st.session_state:
+        st.session_state.global_char_mapping = {}
+    if 'global_char_descs' not in st.session_state:
+        st.session_state.global_char_descs = {}
+
+    # ========== 两个Tab：全局角色映射 + 分镜场景物品 ==========
+    tab1, tab2 = st.tabs(["🎭 全局角色映射", "🎬 分镜场景/物品"])
+
+    with tab1:
+        if not all_shot_roles:
+            st.info("未在分镜中检测到角色信息")
+        else:
+            st.info(f"从所有分镜中检测到 {len(all_shot_roles)} 个角色：{'、'.join(all_shot_roles)}")
+            st.caption("每个角色只需要配置一次，所有分镜共享此映射")
+
+            # 获取可用声线列表（TTS模式）
+            audio_mode = st.session_state.config.get('audio_mode', 'tts')
+            available_voices = None
+            if audio_mode == 'tts':
+                from tts_service import get_tts_service
+                try:
+                    tts_service = get_tts_service()
+                    available_voices = tts_service.get_available_voices()
+                except Exception:
+                    available_voices = []
+                if not available_voices:
+                    available_voices = DEFAULT_VOICE_OPTIONS  # 未配置TTS密钥时用默认列表
+                st.caption(f"🎤 已加载 {len(available_voices)} 个可用声线")
+
+            # 初始化声线映射
+            if 'global_voice_mapping' not in st.session_state:
+                st.session_state.global_voice_mapping = {}
+
+            for role_name in all_shot_roles:
+                with st.container():
+                    st.markdown(f"### 👤 {role_name}")
+                    col_left, col_right = st.columns([1, 2])
+
+                    with col_left:
+                        # 检查角色库中是否有同名角色
                         matched = [c for c in all_characters if c['name'] == role_name]
                         if matched:
-                            st.success(f"👤 {role_name} ✅")
+                            st.success("✅ 角色库中有同名角色")
+                            img_path = matched[0].get('image_path', '')
+                            if img_path and os.path.exists(img_path):
+                                st.image(img_path, width=120)
                         else:
-                            st.warning(f"👤 {role_name}")
-                    
-                    with col_select:
-                        # 选择映射到资源池中的哪个角色
-                        selected_char = st.selectbox(
-                            f"映射 '{role_name}' 到",
-                            options=["不映射（AI自动生成）"] + [c['name'] for c in all_characters],
-                            index=0 if not matched else [c['name'] for c in all_characters].index(role_name) + 1 if role_name in [c['name'] for c in all_characters] else 0,
-                            key=f"map_char_{i}_{role_name}",
-                            label_visibility="collapsed"
+                            st.warning("角色库中未找到")
+
+                        # 映射下拉框
+                        pool_options = ["🤖 AI自动生成"] + [c['name'] for c in all_characters]
+                        current_mapped = st.session_state.global_char_mapping.get(role_name)
+                        default_idx = 0
+                        if current_mapped and current_mapped in [c['name'] for c in all_characters]:
+                            default_idx = [c['name'] for c in all_characters].index(current_mapped) + 1
+                        elif matched:
+                            default_idx = [c['name'] for c in all_characters].index(role_name) + 1
+
+                        selected = st.selectbox(
+                            "映射到角色库",
+                            options=pool_options,
+                            index=default_idx,
+                            key=f"global_map_{role_name}"
                         )
-                        
-                        # 保存映射
-                        if f"shot_{i}_mapping" not in st.session_state:
-                            st.session_state[f"shot_{i}_mapping"] = {}
-                        st.session_state[f"shot_{i}_mapping"][role_name] = selected_char if selected_char != "不映射（AI自动生成）" else None
-                    
-                    # TTS音色选择（仅在TTS模式下显示）
-                    if use_tts:
-                        col_voice_label, col_voice_select = st.columns([1, 3])
-                        with col_voice_label:
-                            st.caption(f"🎤 {role_name} 音色")
-                        with col_voice_select:
-                            # 获取可用音色
-                            from tts_service import get_tts_service
-                            tts_service = get_tts_service()
-                            all_voices = tts_service.get_available_voices()
-                            
+
+                        if selected != "🤖 AI自动生成":
+                            st.session_state.global_char_mapping[role_name] = selected
+                        elif role_name in st.session_state.global_char_mapping:
+                            del st.session_state.global_char_mapping[role_name]
+
+                    with col_right:
+                        mapped_char = st.session_state.global_char_mapping.get(role_name)
+                        if mapped_char:
+                            char_data = next((c for c in all_characters if c['name'] == mapped_char), None)
+                            if char_data:
+                                st.markdown(f"**📌 已映射到:** {mapped_char}")
+                                st.markdown(f"- 外观: {char_data.get('appearance', '无')}")
+                                st.markdown(f"- 服装: {char_data.get('clothes', '无')}")
+                                st.markdown(f"- 性格: {char_data.get('character', '无')}")
+                                st.caption("视频生成时将自动引用角色库中的外观描述和参考图")
+                        else:
+                            st.markdown("**🤖 AI自动生成角色**")
+                            st.caption("为该角色编写外观描述，AI会根据描述生成一致的人物形象")
+
+                            default_desc = st.session_state.global_char_descs.get(role_name, '')
+                            desc = st.text_area(
+                                f"{role_name} 外观描述",
+                                value=default_desc,
+                                placeholder=f"描述 {role_name} 的外观特征...\n例如：男性，25岁，短发，身材高大，穿着蓝色T恤",
+                                height=80,
+                                key=f"global_desc_{role_name}",
+                                label_visibility="collapsed"
+                            )
+                            if desc:
+                                st.session_state.global_char_descs[role_name] = desc
+                            elif role_name in st.session_state.global_char_descs:
+                                del st.session_state.global_char_descs[role_name]
+
+                        # TTS声线选择
+                        if available_voices:
+                            st.markdown("**🎤 配音声线**")
+                            voice_options = [v['id'] for v in available_voices]
+                            def _make_voice_label(v):
+                                name = v.get('name', v['id'])
+                                gender = v.get('gender', '')
+                                style = v.get('style', '')
+                                return f"{name} ({gender}) - {style}" if style else f"{name} ({gender})"
+                            voice_labels = {v['id']: _make_voice_label(v) for v in available_voices}
+                            current_voice = st.session_state.global_voice_mapping.get(role_name)
+                            voice_idx = voice_options.index(current_voice) if current_voice in voice_options else 0
                             selected_voice = st.selectbox(
-                                f"voice_{i}_{role_name}",
-                                options=["使用默认"] + [v['id'] for v in all_voices],
-                                format_func=lambda x: x if x == "使用默认" else next((f"{v['name']} ({v['gender']}) - {v['style']}" for v in all_voices if v['id'] == x), x),
-                                label_visibility="collapsed",
-                                key=f"voice_select_{i}_{role_name}"
+                                f"声线_{role_name}",
+                                options=voice_options,
+                                index=voice_idx,
+                                format_func=lambda x, vl=voice_labels: vl.get(x, x),
+                                key=f"global_voice_{role_name}",
+                                label_visibility="collapsed"
                             )
-                            
-                            # 保存音色选择
-                            if f"shot_{i}_voice_mapping" not in st.session_state:
-                                st.session_state[f"shot_{i}_voice_mapping"] = {}
-                            if selected_voice != "使用默认":
-                                st.session_state[f"shot_{i}_voice_mapping"][role_name] = selected_voice
-                    
-                    # 如果选择不映射，显示手动描述输入框
-                    if selected_char == "不映射（AI自动生成）":
-                        # 角色描述模板
-                        char_template = st.selectbox(
-                            f"'{role_name}' 描述模板",
-                            [
-                                "自定义描述",
-                                "男性，25-30岁，短发，身材高大，五官立体，穿着休闲装",
-                                "女性，20-25岁，长发，身材苗条，气质优雅，穿着连衣裙",
-                                "男性，30-40岁，成熟稳重，胡须，西装革履",
-                                "女性，25-35岁，职业装，干练短发",
-                                "男性，18-22岁，阳光帅气，运动装",
-                                "女性，18-22岁，青春活泼，校园风"
-                            ],
-                            index=0,
-                            key=f"char_template_{i}_{role_name}",
-                            label_visibility="collapsed"
-                        )
-                        
-                        if char_template != "自定义描述":
-                            char_desc = st.text_area(
-                                f"'{role_name}' 外观描述",
-                                value=char_template,
-                                height=60,
-                                key=f"char_desc_{i}_{role_name}",
-                                help="描述角色的外观特征，AI会根据描述生成角色"
-                            )
-                        else:
-                            char_desc = st.text_area(
-                                f"'{role_name}' 外观描述",
-                                placeholder="例如：男性，25岁，短发，身材高大，穿着蓝色T恤...",
-                                height=60,
-                                key=f"char_desc_{i}_{role_name}",
-                                help="描述角色的外观特征，AI会根据描述生成角色"
-                            )
-                        
-                        # 保存手动描述
-                        if f"shot_{i}_char_descs" not in st.session_state:
-                            st.session_state[f"shot_{i}_char_descs"] = {}
-                        st.session_state[f"shot_{i}_char_descs"][role_name] = char_desc
-                
+                            st.session_state.global_voice_mapping[role_name] = selected_voice
+
+                    st.divider()
+
+    with tab2:
+        for i, shot in enumerate(st.session_state.shots):
+            with st.expander(f"📽️ 分镜 {shot['shot_id']}{' - ' + shot.get('shot_prompt', '')[:50] + '...' if shot.get('shot_prompt') else ''}", expanded=(i == 0)):
+                shot_prompt = shot.get('shot_prompt', '')
+                roles_in_shot = shot.get('roles', [])
+
+                if roles_in_shot:
+                    st.caption(f"👤 出场角色: {', '.join(roles_in_shot)}")
+
                 # 场景选择
+                st.markdown("**🎬 场景**")
                 matched_scenes = scene_pool.search_by_name(shot_prompt)
                 if all_scenes:
-                    st.markdown("**🎬 场景选择：**")
+                    scene_options = ["🤖 AI自动生成"] + [s['name'] for s in all_scenes]
+                    scene_default = 0
+                    if matched_scenes:
+                        first_match = matched_scenes[0]['name']
+                        if first_match in [s['name'] for s in all_scenes]:
+                            scene_default = [s['name'] for s in all_scenes].index(first_match) + 1
                     selected_scene = st.selectbox(
                         "选择场景",
-                        options=["不选择（AI自动生成）"] + [s['name'] for s in all_scenes],
-                        index=0 if not matched_scenes else [s['name'] for s in all_scenes].index(matched_scenes[0]['name']) + 1 if matched_scenes[0]['name'] in [s['name'] for s in all_scenes] else 0,
+                        options=scene_options,
+                        index=scene_default,
                         key=f"scene_{i}"
                     )
-                    
-                    # 如果选择不使用资源池场景，显示手动描述
-                    if selected_scene == "不选择（AI自动生成）":
-                        scene_template = st.selectbox(
-                            "场景描述模板",
-                            [
-                                "自定义描述",
-                                "阳光明媚的海滩，蓝天白云，海浪拍打沙滩",
-                                "繁华的城市街道，夜晚霓虹灯，车水马龙",
-                                "安静的咖啡馆，温馨舒适，轻音乐",
-                                "现代化的办公室，落地窗，城市景观",
-                                "豪华酒店大堂，金碧辉煌，水晶吊灯",
-                                "公园花园，春暖花开，鸟语花香"
-                            ],
-                            index=0,
-                            key=f"scene_template_{i}"
-                        )
-                        
-                        if scene_template != "自定义描述":
-                            scene_desc = st.text_area(
-                                "场景描述",
-                                value=scene_template,
-                                height=60,
-                                key=f"scene_desc_{i}",
-                                help="描述场景的环境特征"
-                            )
-                        else:
-                            scene_desc = st.text_area(
-                                "场景描述",
-                                placeholder="例如：阳光明媚的海滩，蓝天白云...",
-                                height=60,
-                                key=f"scene_desc_{i}",
-                                help="描述场景的环境特征"
-                            )
-                        
-                        # 保存手动场景描述
-                        st.session_state[f"shot_{i}_scene_desc"] = scene_desc
+                    if selected_scene == "🤖 AI自动生成":
+                        selected_scene = None
                 else:
-                    # 没有资源池场景，直接显示手动描述
-                    st.markdown("**🎬 场景描述（AI自动生成）：**")
-                    scene_template = st.selectbox(
-                        "场景描述模板",
-                        [
-                            "自定义描述",
-                            "阳光明媚的海滩，蓝天白云，海浪拍打沙滩",
-                            "繁华的城市街道，夜晚霓虹灯，车水马龙",
-                            "安静的咖啡馆，温馨舒适，轻音乐",
-                            "现代化的办公室，落地窗，城市景观",
-                            "豪华酒店大堂，金碧辉煌，水晶吊灯",
-                            "公园花园，春暖花开，鸟语花香"
-                        ],
-                        index=0,
-                        key=f"scene_template_{i}"
+                    selected_scene = None
+
+                if not selected_scene:
+                    scene_desc = st.text_area(
+                        "场景描述",
+                        value=st.session_state.get(f"shot_{i}_scene_desc", ''),
+                        placeholder="描述场景环境...\n例如：阳光明媚的海滩，蓝天白云",
+                        height=60,
+                        key=f"scene_desc_{i}"
                     )
-                    
-                    if scene_template != "自定义描述":
-                        scene_desc = st.text_area(
-                            "场景描述",
-                            value=scene_template,
-                            height=60,
-                            key=f"scene_desc_{i}",
-                            help="描述场景的环境特征"
-                        )
-                    else:
-                        scene_desc = st.text_area(
-                            "场景描述",
-                            placeholder="例如：阳光明媚的海滩，蓝天白云...",
-                            height=60,
-                            key=f"scene_desc_{i}",
-                            help="描述场景的环境特征"
-                        )
-                    
                     st.session_state[f"shot_{i}_scene_desc"] = scene_desc
-                
+                else:
+                    st.session_state[f"shot_{i}_scene_desc"] = ''
+
                 # 物品选择
+                st.markdown("**🎒 物品**")
                 matched_props = prop_pool.search_by_name(shot_prompt)
-                if all_props and matched_props:
-                    st.markdown("**🎒 物品选择：**")
+                if all_props:
                     selected_props = st.multiselect(
                         "选择物品",
                         options=[p['name'] for p in all_props],
                         default=[p['name'] for p in matched_props],
                         key=f"props_{i}"
                     )
-                    
-                    # 为每个未选择的物品添加手动描述
-                    if len(selected_props) < len(matched_props):
-                        st.markdown("**🎒 未选择物品的描述：**")
-                        unselected_props = [p for p in matched_props if p['name'] not in selected_props]
-                        for prop in unselected_props:
-                            prop_desc = st.text_input(
-                                f"'{prop['name']}' 描述",
-                                placeholder="例如：iPhone 15 Pro，深空黑色...",
-                                key=f"prop_desc_{i}_{prop['name']}"
-                            )
-                            if f"shot_{i}_prop_descs" not in st.session_state:
-                                st.session_state[f"shot_{i}_prop_descs"] = {}
-                            st.session_state[f"shot_{i}_prop_descs"][prop['name']] = prop_desc
                 else:
-                    # 没有资源池物品，显示手动描述
-                    st.markdown("**🎒 物品描述（AI自动生成）：**")
-                    prop_names_in_shot = []
-                    # 从提示词中提取可能的物品名（简单实现）
-                    if "手机" in shot_prompt:
-                        prop_names_in_shot.append("手机")
-                    if "电脑" in shot_prompt:
-                        prop_names_in_shot.append("电脑")
-                    
-                    for prop_name in prop_names_in_shot:
-                        prop_template = st.selectbox(
-                            f"'{prop_name}' 描述模板",
-                            [
-                                "自定义描述",
-                                "智能手机，黑色，最新款，高清屏幕",
-                                "豪华轿车，黑色，流线型设计",
-                                "笔记本电脑，银色，轻薄便携",
-                                "文件袋，牛皮纸，机密文件",
-                                "手表，名牌，金属表带"
-                            ],
-                            index=0,
-                            key=f"prop_template_{i}_{prop_name}"
+                    selected_props = []
+
+                # 物品手动描述（未选择但匹配到的物品）
+                if all_props and matched_props:
+                    unselected = [p for p in matched_props if p['name'] not in selected_props]
+                    for prop in unselected:
+                        prop_desc = st.text_input(
+                            f"'{prop['name']}' 描述",
+                            value=st.session_state.get(f"prop_desc_{i}_{prop['name']}", ''),
+                            placeholder=f"描述 {prop['name']} 的外观...",
+                            key=f"prop_desc_{i}_{prop['name']}"
                         )
-                        
-                        if prop_template != "自定义描述":
-                            prop_desc = st.text_input(
-                                f"'{prop_name}' 描述",
-                                value=prop_template,
-                                key=f"prop_desc_{i}_{prop_name}"
-                            )
-                        else:
-                            prop_desc = st.text_input(
-                                f"'{prop_name}' 描述",
-                                placeholder="例如：iPhone 15 Pro，深空黑色...",
-                                key=f"prop_desc_{i}_{prop_name}"
-                            )
-                        
                         if f"shot_{i}_prop_descs" not in st.session_state:
                             st.session_state[f"shot_{i}_prop_descs"] = {}
-                        st.session_state[f"shot_{i}_prop_descs"][prop_name] = prop_desc
-                    
-                    selected_props = []
-            
-            # 显示映射结果
-            mapping = st.session_state.get(f"shot_{i}_mapping", {})
-            has_mapping = any(v for v in mapping.values())
-            
-            if has_mapping:
-                st.markdown("📦 **本次分镜将使用以下资源：**")
-                for role_name, mapped_to in mapping.items():
-                    if mapped_to:
-                        st.markdown(f"  - 👤 {role_name} → {mapped_to}")
-                if 'selected_scene' in locals() and selected_scene != "不选择（AI自动生成）":
-                    st.markdown(f"  - 🎬 场景: {selected_scene}")
-                if selected_props:
-                    st.markdown(f"  - 🎒 物品: {', '.join(selected_props)}")
-            else:
-                st.markdown("🤖 **将使用AI自动生成（不引用资源池资源）**")
-    
+                        st.session_state[f"shot_{i}_prop_descs"][prop['name']] = prop_desc
+
+    # 图片放大查看
+    if st.session_state.get('show_image_dialog'):
+        image_path = st.session_state.show_image_dialog
+        if os.path.exists(image_path):
+            st.markdown("---")
+            st.markdown("### 🔍 图片预览")
+            st.image(image_path, use_container_width=True)
+            if st.button("❌ 关闭", use_container_width=True):
+                st.session_state.show_image_dialog = None
+                st.rerun()
+        else:
+            st.session_state.show_image_dialog = None
+
     st.divider()
-    
+
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         if st.button("← 上一步", use_container_width=True):
@@ -1666,55 +1616,45 @@ elif current_step == 3:
             st.rerun()
     with col3:
         if st.button("下一步：生成视频 →", type="primary", use_container_width=True):
-            # 收集所有分镜的资源映射和手动描述
-            resource_mapping = {}
+            # 收集新结构的 resource_mapping
+            resource_mapping = {
+                'global_character_mapping': dict(st.session_state.global_char_mapping),
+                'global_character_descs': dict(st.session_state.global_char_descs),
+                'global_voice_mapping': dict(st.session_state.get('global_voice_mapping', {})),
+                'shots': {}
+            }
+
             for i, shot in enumerate(st.session_state.shots):
-                shot_mapping = {
-                    'characters': {},
-                    'character_descs': {},  # 手动角色描述
+                shot_data = {
                     'scene': None,
-                    'scene_desc': '',       # 手动场景描述
+                    'scene_desc': '',
                     'props': [],
-                    'prop_descs': {}        # 手动物品描述
+                    'prop_descs': {}
                 }
-                
-                # 收集角色映射
-                mapping_key = f"shot_{i}_mapping"
-                if mapping_key in st.session_state:
-                    shot_mapping['characters'] = st.session_state[mapping_key]
-                
-                # 收集手动角色描述
-                char_descs_key = f"shot_{i}_char_descs"
-                if char_descs_key in st.session_state:
-                    shot_mapping['character_descs'] = st.session_state[char_descs_key]
-                
-                # 收集场景映射
+
+                # 场景
                 scene_key = f"scene_{i}"
-                if scene_key in st.session_state:
-                    selected_scene = st.session_state[scene_key]
-                    if selected_scene != "不选择（AI自动生成）":
-                        shot_mapping['scene'] = selected_scene
-                
-                # 收集手动场景描述
+                if scene_key in st.session_state and st.session_state[scene_key] not in (None, "🤖 AI自动生成"):
+                    shot_data['scene'] = st.session_state[scene_key]
+
+                # 场景描述
                 scene_desc_key = f"shot_{i}_scene_desc"
                 if scene_desc_key in st.session_state:
-                    shot_mapping['scene_desc'] = st.session_state[scene_desc_key]
-                
-                # 收集物品映射
+                    shot_data['scene_desc'] = st.session_state[scene_desc_key]
+
+                # 物品
                 props_key = f"props_{i}"
                 if props_key in st.session_state:
-                    shot_mapping['props'] = st.session_state[props_key]
-                
-                # 收集手动物品描述
+                    shot_data['props'] = st.session_state[props_key]
+
+                # 物品描述
                 prop_descs_key = f"shot_{i}_prop_descs"
                 if prop_descs_key in st.session_state:
-                    shot_mapping['prop_descs'] = st.session_state[prop_descs_key]
-                
-                resource_mapping[i] = shot_mapping
-            
-            # 保存到session_state
+                    shot_data['prop_descs'] = st.session_state[prop_descs_key]
+
+                resource_mapping['shots'][i] = shot_data
+
             st.session_state.resource_mapping = resource_mapping
-            
             st.session_state.current_step = 4
             st.rerun()
 
@@ -1768,20 +1708,22 @@ elif current_step == 4:
                 try:
                     # 显示资源使用情况
                     st.markdown("### 📊 资源使用统计")
-                    
+
+                    rm = st.session_state.resource_mapping
+                    global_chars = rm.get('global_character_mapping', {})
+                    global_descs = rm.get('global_character_descs', {})
+                    has_global_chars = bool(global_chars or global_descs)
+
                     total_shots = len(st.session_state.shots)
                     shots_with_resources = 0
                     shots_without_resources = 0
-                    
+
                     for i, shot in enumerate(st.session_state.shots):
-                        mapping = st.session_state.resource_mapping.get(i, {})
-                        has_resources = (
-                            mapping.get('selected_characters') or 
-                            mapping.get('scene') or 
-                            mapping.get('props')
+                        shot_m = rm.get('shots', {}).get(i, {})
+                        has_shot_resources = bool(
+                            shot_m.get('scene') or shot_m.get('props')
                         )
-                        
-                        if has_resources:
+                        if has_global_chars or has_shot_resources:
                             shots_with_resources += 1
                         else:
                             shots_without_resources += 1
@@ -1794,9 +1736,10 @@ elif current_step == 4:
                     
                     st.divider()
                     
-                    # 调用视频生成（传入用户配置和资源映射）
+                    # 调用视频生成（传入分镜、用户配置和资源映射）
                     batch_generate_videos(
                         episode_num=1,
+                        shots=st.session_state.shots,
                         config=st.session_state.config,
                         resource_mapping=st.session_state.resource_mapping
                     )
@@ -1870,7 +1813,6 @@ with st.sidebar:
     
     # API配置状态
     st.markdown("### 🔑 API配置状态")
-    import config
     ds_key_status = "✅" if config.DEEPSEEK_API_KEY and config.DEEPSEEK_API_KEY != "your_api_key" else "❌"
     sd_key_status = "✅" if config.SEEDANCE_API_KEY and config.SEEDANCE_API_KEY != "your_api_key" else "❌"
     

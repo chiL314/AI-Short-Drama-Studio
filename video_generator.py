@@ -56,12 +56,12 @@ def get_reference_images(shot_roles: List[str], character_mapping: Dict = None) 
 
 def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, resource_mapping: Dict = None) -> bool:
     """生成单个分镜视频
-    
+
     Args:
         shot: 分镜数据
         episode_num: 剧集编号
         config: 用户配置
-        resource_mapping: 资源映射数据
+        resource_mapping: 资源映射数据 {global_character_mapping, global_character_descs, shots}
     """
     shot_id = shot["shot_id"]
     shot_prompt = shot["shot_prompt"]
@@ -73,64 +73,58 @@ def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, res
         print(f"⏭️  分镜{shot_id}已存在，跳过")
         return True
 
-    # 获取资源映射（如果有）
-    character_mapping = None
-    character_descs = {}  # 手动角色描述
+    # 解析新结构的 resource_mapping
+    global_char_mapping = {}   # {role_name: pool_char_name}
+    global_char_descs = {}      # {role_name: custom_description}
     scene_name = None
-    scene_desc = ''       # 手动场擈描述
+    scene_desc = ''
     prop_names = []
-    prop_descs = {}       # 手动物品描述
-        
+    prop_descs = {}
+
     if resource_mapping:
-        # 直接使用当前分镜的索引获取映射
-        # shot_id从1开始，索引从0开始，所以需要shot_id - 1
+        global_char_mapping = resource_mapping.get('global_character_mapping', {})
+        global_char_descs = resource_mapping.get('global_character_descs', {})
         shot_index = shot_id - 1
-        shot_mapping = resource_mapping.get(shot_index, {})
-            
+        shot_mapping = resource_mapping.get('shots', {}).get(shot_index, {})
         if shot_mapping:
-            character_mapping = shot_mapping.get('characters', {})
-            character_descs = shot_mapping.get('character_descs', {})
             scene_name = shot_mapping.get('scene')
             scene_desc = shot_mapping.get('scene_desc', '')
             prop_names = shot_mapping.get('props', [])
             prop_descs = shot_mapping.get('prop_descs', {})
-            print(f"📦 分镜{shot_id}使用资源映射（索引{shot_index}）")
-    
-    # 获取所有出场角色的参考图（使用映射）
-    ref_images = get_reference_images(shot_roles, character_mapping)
-    
-    # 调试信息：打印角色映射
-    if character_mapping:
-        print(f"👥 分镜{shot_id}角色映射: {character_mapping}")
-    if character_descs:
-        print(f"📝 分镜{shot_id}角色描述: {character_descs}")
 
-    # 使用配置中的参数，如果没有则使用默认值
+    # 获取所有出场角色的参考图（使用映射）
+    ref_images = get_reference_images(shot_roles, global_char_mapping)
+
+    if global_char_mapping:
+        print(f"👥 分镜{shot_id}角色映射: {global_char_mapping}")
+    if global_char_descs:
+        print(f"📝 分镜{shot_id}角色自定义描述: {list(global_char_descs.keys())}")
+
+    # 使用配置中的参数
     if config is None:
         config = {}
-    
-    # 调试信息：打印配置
-    print(f"\n🔍 分镜{shot_id}配置信息:")
-    print(f"  - base_style_prompt: {config.get('base_style_prompt', '使用默认')[:50]}...")
-    print(f"  - resolution: {config.get('resolution', '1080p')}")
-    print(f"  - aspect_ratio: {config.get('aspect_ratio', '9:16')}")
-    
+
     base_style_prompt = config.get('base_style_prompt', BASE_STYLE_PROMPT)
     resolution = config.get('resolution', '1080p')
     aspect_ratio = config.get('aspect_ratio', '9:16')
-    
+
     # 拼接完整提示词
-    # 注意：shot_prompt已经包含了场景和物品的描述（由LLM生成）
-    # 如果使用了参考图片，文本描述可以简化，避免重复
     full_prompt = base_style_prompt + shot_prompt
-    
-    # 添加手动角色描述（如果没有使用资源池）
-    if character_descs:
-        for role_name, desc in character_descs.items():
+
+    # --- 注入角色描述到视频提示词 ---
+    if global_char_mapping:
+        char_pool = get_character_pool(RESOURCE_POOL_DIR)
+        for role_name, mapped_char_name in global_char_mapping.items():
+            if mapped_char_name and role_name in shot_prompt:
+                role_prompt = char_pool.build_role_prompt(mapped_char_name)
+                if role_prompt:
+                    full_prompt = full_prompt.replace(role_name, f"{role_name}（{role_prompt}）", 1)
+                    print(f"👤 注入角色库描述: {role_name} -> {mapped_char_name}")
+    elif global_char_descs:
+        for role_name, desc in global_char_descs.items():
             if desc and role_name in shot_prompt:
-                # 将角色名替换为详细描述
                 full_prompt = full_prompt.replace(role_name, f"{role_name}（{desc}）", 1)
-                print(f"👤 使用角色描述: {role_name} - {desc[:30]}...")
+                print(f"👤 使用自定义角色描述: {role_name}")
     
     # 获取场景参考图和描述（如果有）
     if scene_name:
@@ -333,20 +327,25 @@ def download_video(video_url: str, save_path: str) -> None:
     print(f"💾 视频已保存: {save_path}")
 
 
-def batch_generate_videos(episode_num: int, config: Dict = None, resource_mapping: Dict = None) -> None:
+def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Dict = None, resource_mapping: Dict = None) -> None:
     """批量生成所有分镜视频
-    
+
     Args:
         episode_num: 剧集编号
+        shots: 分镜列表（从外部传入，不再从磁盘读取）
         config: 用户配置
-        resource_mapping: 资源映射数据
+        resource_mapping: 资源映射数据 {global_character_mapping, global_character_descs, shots}
     """
     create_output_dir(episode_num)
 
-    # 读取分镜文件
-    shot_path = f"./shots/episode_{episode_num:03d}_shots.json"
-    with open(shot_path, "r", encoding="utf-8") as f:
-        shots = json.load(f)
+    # 如果没有传入 shots，从磁盘读取（兼容旧调用）
+    if shots is None:
+        shot_path = f"./shots/episode_{episode_num:03d}_shots.json"
+        if not os.path.exists(shot_path):
+            print(f"❌ 分镜文件不存在: {shot_path}")
+            return
+        with open(shot_path, "r", encoding="utf-8") as f:
+            shots = json.load(f)
 
     print(f"🚀 开始批量生成第{episode_num}集，共{len(shots)}个分镜")
     
@@ -359,18 +358,19 @@ def batch_generate_videos(episode_num: int, config: Dict = None, resource_mappin
     
     # 显示资源映射信息
     if resource_mapping:
+        global_chars = resource_mapping.get('global_character_mapping', {})
+        global_descs = resource_mapping.get('global_character_descs', {})
         print(f"📦 使用资源映射:")
-        for shot_idx, mapping in resource_mapping.items():
-            chars = mapping.get('characters', {})
-            scene = mapping.get('scene')
-            props = mapping.get('props', [])
-            
-            if chars or scene or props:
+        if global_chars:
+            print(f"  全局角色映射: {global_chars}")
+        if global_descs:
+            print(f"  自定义角色描述: {list(global_descs.keys())}")
+        shots_mapping = resource_mapping.get('shots', {})
+        for shot_idx, sm in shots_mapping.items():
+            scene = sm.get('scene')
+            props = sm.get('props', [])
+            if scene or props:
                 print(f"  分镜{shot_idx + 1}:")
-                if chars:
-                    for role, mapped in chars.items():
-                        if mapped:
-                            print(f"    👤 {role} → {mapped}")
                 if scene:
                     print(f"    🎬 场景: {scene}")
                 if props:
@@ -389,34 +389,56 @@ def batch_generate_videos(episode_num: int, config: Dict = None, resource_mappin
     
     for i, shot in enumerate(shots):
         # 获取当前分镜的资源映射
-        shot_resource_mapping = resource_mapping.get(i, {}) if resource_mapping else None
-        
-        if generate_single_video(shot, episode_num, config, shot_resource_mapping):
+        shot_resource_mapping = resource_mapping.get('shots', {}).get(i, {}) if resource_mapping else {}
+        # 合并全局角色映射
+        full_shot_mapping = {"global_character_mapping": resource_mapping.get('global_character_mapping', {}),
+                             "global_character_descs": resource_mapping.get('global_character_descs', {}),
+                             "shots": {i: shot_resource_mapping}} if resource_mapping else None
+
+        if generate_single_video(shot, episode_num, config, full_shot_mapping):
             success_count += 1
             video_file = f"./output/episode_{episode_num:03d}/shot_{shot['shot_id']:03d}.mp4"
             video_files.append(video_file)
             
-            # 如果有对话，生成TTS音频
+            # TTS配音：按角色对话+声线映射生成音频
             if audio_mode == 'tts':
-                dialogue = shot.get('dialogue', '')
-                if dialogue and dialogue.strip():
-                    # 获取角色音色映射
-                    character_mapping = shot_resource_mapping.get('characters', {}) if shot_resource_mapping else {}
+                dialogue = shot.get('dialogue', [])
+                if dialogue:
+                    global_voice_mapping = resource_mapping.get('global_voice_mapping', {}) if resource_mapping else {}
                     tts_service = get_tts_service()
-                    
-                    # 生成TTS音频
-                    audio_file = tts_service.synthesize(
-                        text=dialogue,
-                        voice_id='xiaoyun',  # 默认音色
-                        output_path=f"./output/episode_{episode_num:03d}/tts_shot_{shot['shot_id']:03d}.wav"
-                    )
-                    
-                    if audio_file:
+                    shot_audio_files = []
+
+                    for d_entry in dialogue:
+                        role = d_entry.get('role', '')
+                        text = d_entry.get('text', '').strip()
+                        if not text:
+                            continue
+
+                        voice_id = global_voice_mapping.get(role, 'xiaoyun')
+                        print(f"🎤 为角色 {role} 生成TTS: {text[:30]}... (声线: {voice_id})")
+
+                        audio_file = tts_service.synthesize(
+                            text=text,
+                            voice_id=voice_id,
+                            output_path=f"./output/episode_{episode_num:03d}/tts_shot_{shot['shot_id']:03d}_{role}.wav"
+                        )
+
+                        if audio_file:
+                            shot_audio_files.append(audio_file)
+
+                    if shot_audio_files:
+                        merged_audio = f"./output/episode_{episode_num:03d}/tts_shot_{shot['shot_id']:03d}.wav"
+                        if len(shot_audio_files) > 1:
+                            AudioProcessor.concat_audio_sequential(shot_audio_files, merged_audio)
+                        else:
+                            merged_audio = shot_audio_files[0]
+
                         tts_audio_files.append({
                             'shot_id': shot['shot_id'],
-                            'audio_file': audio_file,
+                            'audio_file': merged_audio,
                             'dialogue': dialogue
                         })
+                        print(f"✅ 分镜{shot['shot_id']} TTS配音完成（{len(shot_audio_files)}段对话）")
         
         time.sleep(API_INTERVAL)
 

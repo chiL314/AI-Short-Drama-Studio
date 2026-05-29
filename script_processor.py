@@ -23,7 +23,7 @@ def validate_shots(shots: List[Dict]) -> tuple:
     if not isinstance(shots, list):
         return False, f"分镜数据应该是数组格式，实际是 {type(shots).__name__}"
     
-    required_fields = {"shot_id", "shot_prompt", "roles"}
+    required_fields = {"shot_id", "shot_prompt", "roles", "dialogue"}
     
     for i, shot in enumerate(shots):
         # 检查是否为字典
@@ -61,9 +61,22 @@ def validate_shots(shots: List[Dict]) -> tuple:
         for j, role in enumerate(shot['roles']):
             if not isinstance(role, str):
                 return False, f"第{i+1}个分镜的第{j+1}个角色名必须是字符串"
-            
+
             if not role.strip():
                 return False, f"第{i+1}个分镜的第{j+1}个角色名不能为空"
+
+        # 检查 dialogue（新增字段）
+        dialogue = shot.get('dialogue', [])
+        if not isinstance(dialogue, list):
+            return False, f"第{i+1}个分镜的 dialogue 必须是数组"
+
+        for d_entry in dialogue:
+            if not isinstance(d_entry, dict):
+                return False, f"第{i+1}个分镜 dialogue 中每项必须是对象"
+            if 'role' not in d_entry or 'text' not in d_entry:
+                return False, f"第{i+1}个分镜 dialogue 每项必须包含 role 和 text 字段"
+            if not isinstance(d_entry['text'], str):
+                return False, f"第{i+1}个分镜 dialogue text 必须是字符串"
     
     return True, ""
 
@@ -108,11 +121,14 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
 
     【输出要求】
     1. 严格输出纯JSON数组，不要任何多余文字、解释、序号
-    2. 每个分镜只包含3个字段：
+    2. 每个分镜包含4个字段：
        "shot_id": 分镜编号(从1开始)
        "shot_prompt": 纯视频提示词(只写画面、动作、表情、光影、镜头)
        "roles": 本镜头出场的角色名数组(如["男主A", "女主B"])
+       "dialogue": 本镜头对话数组，格式 [{"role": "角色名", "text": "对话内容"}]
+       如果没有对话，dialogue 为空数组 []
     3. 绝对不允许输出任何JSON以外的内容
+    4. dialogue中每条对话必须简短精炼（10字以内），符合短视频节奏
 
     【全局画风】
     {base_style_prompt}

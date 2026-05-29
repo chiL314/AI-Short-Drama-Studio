@@ -205,6 +205,57 @@ class AudioProcessor:
                 os.remove(list_file)
             raise
 
+    @staticmethod
+    def concat_audio_sequential(
+        audio_files: List[str],
+        output_path: str
+    ) -> str:
+        """按顺序拼接多个音频文件（适合多段对话拼接）
+
+        Args:
+            audio_files: 音频文件路径列表（按播放顺序）
+            output_path: 输出文件路径
+
+        Returns:
+            输出文件路径
+        """
+        if not audio_files:
+            raise ValueError("音频文件列表为空")
+
+        if len(audio_files) == 1:
+            import shutil
+            shutil.copy(audio_files[0], output_path)
+            return output_path
+
+        if not AudioProcessor.check_ffmpeg():
+            raise RuntimeError("未找到FFmpeg，请先安装FFmpeg")
+
+        # 使用 FFmpeg concat filter
+        ffmpeg_path = AudioProcessor.get_ffmpeg_path()
+        cmd = [ffmpeg_path, '-y']
+        for af in audio_files:
+            cmd.extend(['-i', af])
+
+        # 构建 concat filter: [0:a][1:a]...[N:a]concat=n=N:v=0:a=1[out]
+        inputs = ''.join(f'[{i}:a]' for i in range(len(audio_files)))
+        filter_str = f'{inputs}concat=n={len(audio_files)}:v=0:a=1[out]'
+
+        cmd.extend(['-filter_complex', filter_str, '-map', '[out]', output_path])
+
+        print(f"🎵 拼接 {len(audio_files)} 个音频文件")
+
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            if result.returncode == 0:
+                print(f"✅ 音频拼接成功: {output_path}")
+                return output_path
+            else:
+                error_msg = result.stderr.decode('utf-8')
+                raise RuntimeError(f"FFmpeg音频拼接失败: {error_msg}")
+        except Exception as e:
+            print(f"❌ 音频拼接失败: {e}")
+            raise
+
 
 class SubtitleGenerator:
     """字幕生成器"""
