@@ -56,22 +56,23 @@ def get_reference_images(shot_roles: List[str], character_mapping: Dict = None) 
     return ref_images
 
 
-def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, resource_mapping: Dict = None) -> bool:
+def generate_single_video(shot: Dict, task_id: str, config: Dict = None, resource_mapping: Dict = None, force: bool = False) -> bool:
     """生成单个分镜视频
 
     Args:
         shot: 分镜数据
-        episode_num: 剧集编号
+        task_id: 任务ID
         config: 用户配置
         resource_mapping: 资源映射数据 {global_character_mapping, global_character_descs, shots}
+        force: 强制重新生成，跳过断点续跑检查
     """
     shot_id = shot["shot_id"]
     shot_prompt = shot["shot_prompt"]
     shot_roles = shot["roles"]
 
     # 检查是否已经生成过（断点续跑）
-    video_path = f"./output/episode_{episode_num:03d}/shot_{shot_id:03d}.mp4"
-    if os.path.exists(video_path):
+    video_path = f"./output/{task_id}/shot_{shot_id:03d}.mp4"
+    if not force and os.path.exists(video_path):
         logger.info("分镜%d 已存在，跳过", shot_id)
         return True
 
@@ -338,21 +339,24 @@ def download_video(video_url: str, save_path: str) -> None:
     logger.info("视频已保存: %s", save_path)
 
 
-def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Dict = None,
-                         resource_mapping: Dict = None, progress_callback: Optional[Callable] = None) -> None:
+def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict = None,
+                         resource_mapping: Dict = None, progress_callback: Optional[Callable] = None,
+                         force: bool = False) -> None:
     """批量生成所有分镜视频
 
     Args:
-        episode_num: 剧集编号
+        task_id: 任务ID
         shots: 分镜列表（从外部传入，不再从磁盘读取）
         config: 用户配置
         resource_mapping: 资源映射数据
         progress_callback: 进度回调 (current: int, total: int, status: str, shot_id: int)
+        force: 强制重新生成所有分镜，跳过断点续跑检查
     """
-    create_output_dir(episode_num)
+    output_dir = f"./output/{task_id}"
+    os.makedirs(output_dir, exist_ok=True)
 
     if shots is None:
-        shot_path = f"./shots/episode_{episode_num:03d}_shots.json"
+        shot_path = f"{output_dir}/shots.json"
         if not os.path.exists(shot_path):
             logger.error("分镜文件不存在: %s", shot_path)
             return
@@ -360,7 +364,15 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
             shots = json.load(f)
 
     total = len(shots)
-    logger.info("开始批量生成第%d集，共%d个分镜", episode_num, total)
+    logger.info("开始批量生成任务 %s，共%d个分镜", task_id, total)
+
+    # 强制模式：清理输出目录中的旧视频和残留文件
+    if force and os.path.exists(output_dir):
+        import glob
+        old_files = glob.glob(f"{output_dir}/*.mp4") + glob.glob(f"{output_dir}/*.wav")
+        for f in old_files:
+            os.remove(f)
+            logger.info("已清理旧文件: %s", f)
 
     if config:
         logger.info("使用配置: 分辨率=%s, 画面比例=%s, 基础提示词=%s...",
@@ -393,9 +405,9 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
                              "global_character_descs": resource_mapping.get('global_character_descs', {}),
                              "shots": {i: shot_resource_mapping}} if resource_mapping else None
 
-        if generate_single_video(shot, episode_num, config, full_shot_mapping):
+        if generate_single_video(shot, task_id, config, full_shot_mapping, force=force):
             success_count += 1
-            video_file = f"./output/episode_{episode_num:03d}/shot_{shot_id:03d}.mp4"
+            video_file = f"{output_dir}/shot_{shot_id:03d}.mp4"
             video_files.append(video_file)
 
             # TTS配音
@@ -423,14 +435,14 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
                             audio_file = tts_service.synthesize(
                                 text=text,
                                 voice_id=voice_id,
-                                output_path=f"./output/episode_{episode_num:03d}/tts_shot_{shot_id:03d}_{role}.wav"
+                                output_path=f"{output_dir}/tts_shot_{shot_id:03d}_{role}.wav"
                             )
 
                             if audio_file:
                                 shot_audio_files.append((role, audio_file))
 
                         if shot_audio_files:
-                            merged_audio = f"./output/episode_{episode_num:03d}/tts_shot_{shot_id:03d}.wav"
+                            merged_audio = f"{output_dir}/tts_shot_{shot_id:03d}.wav"
                             if len(shot_audio_files) > 1:
                                 shot_duration = config.get('shot_duration', cfg.SHOT_DURATION)
                                 AudioProcessor.mix_audio_with_timing(
@@ -452,13 +464,11 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
             progress_callback(i + 1, total, "done" if success_count > i else "failed", shot_id)
         time.sleep(cfg.API_INTERVAL)
 
-    logger.info("批量生成完成！成功：%d/%d", success_count, total)
-    logger.info("视频文件保存在：./output/episode_%03d/", episode_num)
+    logger.info("视频文件保存在：%s", output_dir)
 
     # 后处理：TTS配音和字幕烧录
     if config and success_count > 0:
         enable_subtitle = config.get('enable_subtitle', False)
-        output_dir = f"./output/episode_{episode_num:03d}"
 
         # TTS配音处理
         if audio_mode == 'tts' and tts_audio_files:
@@ -493,7 +503,7 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
             if progress_callback:
                 progress_callback(total, total, "subtitles", 0)
 
-            srt_file = f"{output_dir}/episode_{episode_num:03d}_subtitles.srt"
+            srt_file = f"{output_dir}/subtitles.srt"
             try:
                 SubtitleGenerator.generate_srt(
                     shots=shots,
@@ -532,7 +542,7 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
             if progress_callback:
                 progress_callback(total, total, "merging", 0)
 
-            merged_video = f"{output_dir}/episode_{episode_num:03d}_merged.mp4"
+            merged_video = f"{output_dir}/merged.mp4"
             try:
                 AudioProcessor.merge_videos(
                     video_files=video_files,

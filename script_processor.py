@@ -83,13 +83,14 @@ def validate_shots(shots: List[Dict]) -> tuple:
     
     return True, ""
 
-def generate_shots_from_script(script_content: str, shot_count: int, episode_num: int, user_config: Dict = None) -> List[Dict]:
+def generate_shots_from_script(script_content: str, shot_count: int, episode_num: int = 1, user_config: Dict = None, task_id: str = None) -> List[Dict]:
     """
     从剧本生成标准分镜列表
     :param script_content: 完整剧本内容
     :param shot_count: 要拆分的分镜数量
-    :param episode_num: 剧集编号
+    :param episode_num: 剧集编号（已弃用，建议使用 task_id）
     :param user_config: 用户配置（包含base_style_prompt）
+    :param task_id: 任务ID，分镜会保存到 ./output/{task_id}/shots.json
     :return: 标准分镜列表
     """
     if user_config is None:
@@ -211,15 +212,16 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
 
     logger.info("分镜数据校验通过（共%d个分镜）", len(shots))
 
-    # 确保目录存在
-    os.makedirs("./shots", exist_ok=True)
-
     # 保存分镜到本地JSON文件（支持人工审核修改）
-    output_path = f"./shots/episode_{episode_num:03d}_shots.json"
+    if task_id:
+        os.makedirs(f"./output/{task_id}", exist_ok=True)
+        output_path = f"./output/{task_id}/shots.json"
+    else:
+        os.makedirs("./shots", exist_ok=True)
+        output_path = f"./shots/episode_{episode_num:03d}_shots.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(shots, f, ensure_ascii=False, indent=2)
 
     logger.info("分镜生成完成，已保存到：%s", output_path)
-    logger.info("请打开文件人工审核修改，确认无误后再运行视频生成")
 
     return shots

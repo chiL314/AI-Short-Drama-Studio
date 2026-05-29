@@ -562,7 +562,9 @@ class SubtitleGenerator:
         
         # 转换字幕文件路径为绝对路径（避免FFmpeg找不到）
         abs_subtitle = os.path.abspath(subtitle_path)
-        # 转义路径中的特殊字符
+        # Windows: FFmpeg 将 \ 视为转义符，必须转为 /
+        abs_subtitle = abs_subtitle.replace('\\', '/')
+        # 转义路径中的特殊字符（: 在FFmpeg filter中有特殊含义）
         escaped_subtitle = abs_subtitle.replace(':', '\\:').replace("'", "'\\\\\\''")
         
         # 构建FFmpeg命令

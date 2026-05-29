@@ -14,6 +14,7 @@ from datetime import datetime
 
 # 导入现有模块
 import config
+import task_manager
 from character_pool import CharacterPool, get_character_pool
 from scene_pool import ScenePool, get_scene_pool
 from prop_pool import PropPool, get_prop_pool
@@ -185,6 +186,8 @@ if 'config' not in st.session_state:
         }
 if 'script_content' not in st.session_state:
     st.session_state.script_content = ''
+if 'current_task_id' not in st.session_state:
+    st.session_state.current_task_id = None
 if 'shots' not in st.session_state:
     st.session_state.shots = []
 if 'resource_mapping' not in st.session_state:
@@ -848,6 +851,14 @@ elif current_step == 1:
             if sample_path.exists():
                 with open(sample_path, 'r', encoding='utf-8') as f:
                     st.session_state.shots = json.load(f)
+                # 创建新任务
+                st.session_state.current_task_id = task_manager.create_task(
+                    script_preview="[示例分镜]",
+                    shot_count=len(st.session_state.shots)
+                )
+                # 保存分镜到任务目录
+                with open(task_manager.shots_path(st.session_state.current_task_id), 'w', encoding='utf-8') as f:
+                    json.dump(st.session_state.shots, f, ensure_ascii=False, indent=2)
                 st.success(f"✅ 已加载 {len(st.session_state.shots)} 个示例分镜（零Token消耗）")
                 st.session_state.current_step = 2
                 st.rerun()
@@ -872,17 +883,28 @@ elif current_step == 1:
                         progress_text.info("📡 正在连接AI服务...")
 
                         start_time = time.time()
-                        
+
+                        # 创建新任务
+                        st.session_state.current_task_id = task_manager.create_task(
+                            script_preview=st.session_state.script_content[:200],
+                            shot_count=st.session_state.config['shot_count']
+                        )
+
                         shots = generate_shots_from_script(
                             st.session_state.script_content,
                             st.session_state.config['shot_count'],
                             episode_num=1,
-                            user_config=st.session_state.config
+                            user_config=st.session_state.config,
+                            task_id=st.session_state.current_task_id
                         )
-                        
+
+                        task_manager.update_task(st.session_state.current_task_id,
+                                                 shot_count=len(shots),
+                                                 status="shots_generated")
+
                         elapsed = time.time() - start_time
                         progress_text.success(f"✅ AI返回成功（耗时{elapsed:.1f}秒），正在解析分镜...")
-                        
+
                         st.session_state.shots = shots
                         st.success(f"✅ 成功生成 {len(shots)} 个分镜！")
                         st.session_state.current_step = 2
@@ -1718,7 +1740,7 @@ elif current_step == 4:
             st.caption(shot.get('shot_prompt', '')[:100] + "...")
     
     st.divider()
-    
+
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         if st.button("← 上一步", use_container_width=True):
@@ -1764,7 +1786,7 @@ elif current_step == 4:
                 shot_progress_cols = st.columns(min(total_shots, 8))
 
                 # 断点续跑预检
-                output_dir = "./output/episode_001"
+                output_dir = task_manager.get_task_dir(st.session_state.current_task_id)
                 skipped_count = 0
                 for shot in st.session_state.shots:
                     video_path = f"{output_dir}/shot_{shot['shot_id']:03d}.mp4"
@@ -1788,12 +1810,13 @@ elif current_step == 4:
 
                 # 调用视频生成（传入进度回调）
                 batch_generate_videos(
-                    episode_num=1,
+                    task_id=st.session_state.current_task_id,
                     shots=st.session_state.shots,
                     config=st.session_state.config,
                     resource_mapping=st.session_state.resource_mapping,
                     progress_callback=on_progress
                 )
+                task_manager.update_task(st.session_state.current_task_id, status="videos_generated")
                 progress_bar.progress(1.0)
                 status_container.success("✅ 视频生成完成！")
                 st.session_state.current_step = 5
@@ -1820,26 +1843,28 @@ elif current_step == 5:
     
     # 显示生成的视频
     st.markdown("### 🎥 生成的视频")
-    
-    output_dir = f"./output/episode_001"
-    if os.path.exists(output_dir):
-        video_files = [f for f in os.listdir(output_dir) if f.endswith('.mp4')]
-        
-        if video_files:
-            cols = st.columns(min(3, len(video_files)))
-            for i, video_file in enumerate(video_files):
-                with cols[i % 3]:
-                    video_path = os.path.join(output_dir, video_file)
-                    st.video(video_path)
-                    st.markdown(f"**{video_file}**")
-                    
-                    # 重做按钮
-                    if st.button(f"🔄 重做", key=f"redo_{i}"):
-                        st.info(f"将重做 {video_file}")
-        else:
-            st.info("暂无生成的视频")
+
+    output_dir = task_manager.get_task_dir(st.session_state.current_task_id) if st.session_state.current_task_id else ""
+
+    if not st.session_state.current_task_id:
+        st.info("尚未生成视频，请先完成前面的步骤")
     else:
-        st.warning("输出目录不存在")
+        st.caption(f"📁 任务目录: {output_dir}")
+
+        if os.path.exists(output_dir):
+            video_files = sorted([f for f in os.listdir(output_dir) if f.endswith('.mp4')])
+
+            if video_files:
+                cols = st.columns(min(3, len(video_files)))
+                for i, video_file in enumerate(video_files):
+                    with cols[i % 3]:
+                        video_path = os.path.join(output_dir, video_file)
+                        st.video(video_path)
+                        st.markdown(f"**{video_file}**")
+            else:
+                st.info("暂无生成的视频")
+        else:
+            st.warning("输出目录不存在")
     
     st.divider()
     
@@ -1861,7 +1886,43 @@ with st.sidebar:
     if st.button("🏠 返回首页", use_container_width=True):
         st.session_state.current_step = 0
         st.rerun()
-    
+
+    st.divider()
+
+    # 当前任务
+    if st.session_state.current_task_id:
+        st.markdown("### 📋 当前任务")
+        st.caption(f"ID: {st.session_state.current_task_id}")
+        if st.button("🆕 开始新任务", use_container_width=True, type="secondary"):
+            st.session_state.current_task_id = None
+            st.session_state.shots = []
+            st.session_state.resource_mapping = {}
+            st.session_state.generated_videos = []
+            st.session_state.current_step = 0
+            st.rerun()
+
+    st.divider()
+
+    # 历史任务
+    st.markdown("### 📚 历史任务")
+    tasks = task_manager.list_tasks()
+    if tasks:
+        for t in tasks[:10]:
+            task_dir = task_manager.get_task_dir(t['task_id'])
+            video_count = 0
+            if os.path.exists(task_dir):
+                video_count = len([f for f in os.listdir(task_dir) if f.endswith('.mp4')])
+            col_t, col_v = st.columns([3, 1])
+            with col_t:
+                st.caption(f"{t['task_id']} — {t.get('shot_count', 0)}镜/{video_count}视频")
+            with col_v:
+                if st.button("📂", key=f"open_task_{t['task_id']}", help="查看此任务"):
+                    st.session_state.current_task_id = t['task_id']
+                    st.session_state.current_step = 5
+                    st.rerun()
+    else:
+        st.caption("暂无历史任务")
+
     st.divider()
     
     # API配置状态
