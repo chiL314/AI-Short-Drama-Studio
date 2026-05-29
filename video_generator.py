@@ -107,6 +107,7 @@ def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, res
     base_style_prompt = config.get('base_style_prompt', BASE_STYLE_PROMPT)
     resolution = config.get('resolution', '1080p')
     aspect_ratio = config.get('aspect_ratio', '9:16')
+    shot_duration = config.get('shot_duration', SHOT_DURATION)
 
     # 拼接完整提示词
     full_prompt = base_style_prompt + shot_prompt
@@ -217,7 +218,7 @@ def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, res
         "face_consistency": "high",
         "resolution": resolution,
         "aspect_ratio": aspect_ratio,
-        "duration": SHOT_DURATION,
+        "duration": shot_duration,
         "generate_audio": generate_audio
     }
 
@@ -226,7 +227,7 @@ def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, res
         print(f"\n{'='*60}")
         print(f"🧪 DRY RUN - 分镜{shot_id}")
         print(f"{'='*60}")
-        print(f"📐 配置: {resolution} / {aspect_ratio} / {SHOT_DURATION}s / audio={generate_audio}")
+        print(f"📐 配置: {resolution} / {aspect_ratio} / {shot_duration}s / audio={generate_audio}")
         print(f"👥 角色: {shot_roles}")
         if global_char_mapping:
             print(f"🔗 角色映射: {global_char_mapping}")
@@ -290,8 +291,8 @@ def generate_single_video(shot: Dict, episode_num: int, config: Dict = None, res
 
 def poll_task_result(task_id: str, headers: dict, max_wait: int = 300) -> str:
     """轮询任务结果，返回视频URL"""
-    # 火山引擎查询任务的API端点
-    query_url = f"https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}"
+    # 基于用户配置的 API 地址构建查询 URL
+    query_url = f"{SEEDANCE_API_URL.rstrip('/')}/{task_id}"
     
     start_time = time.time()
     while time.time() - start_time < max_wait:

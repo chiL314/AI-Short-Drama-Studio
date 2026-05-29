@@ -376,31 +376,34 @@ class SubtitleGenerator:
             
             for shot in shots:
                 shot_id = shot.get('shot_id', 0)
-                dialogue = shot.get('dialogue', '')
-                
+                dialogue = shot.get('dialogue', [])
+                if not isinstance(dialogue, list):
+                    dialogue = []
+
                 if not dialogue:
                     continue
-                
+
                 # 计算时间戳（假设每个分镜5秒）
                 start_time = (shot_id - 1) * 5
                 end_time = shot_id * 5
-                
+
                 # 格式化时间戳
                 start_str = SubtitleGenerator._format_timestamp(start_time)
                 end_str = SubtitleGenerator._format_timestamp(end_time)
-                
-                # 处理多行对话
-                dialogues = dialogue.split('\n')
-                for line in dialogues:
-                    line = line.strip()
-                    if not line:
+
+                # 处理对话列表 [{role, text}]
+                for d_entry in dialogue:
+                    role = d_entry.get('role', '')
+                    text = d_entry.get('text', '').strip()
+                    if not text:
                         continue
-                    
+                    line = f"{role}：{text}"
+
                     # 写入SRT格式
                     f.write(f"{subtitle_index}\n")
                     f.write(f"{start_str} --> {end_str}\n")
                     f.write(f"{line}\n\n")
-                    
+
                     subtitle_index += 1
         
         print(f"✅ SRT字幕生成成功: {output_path} ({subtitle_index - 1}条字幕)")
