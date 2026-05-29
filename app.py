@@ -384,6 +384,7 @@ if st.session_state.show_api_config:
                             deepseek_model=ds_model,
                             seedance_api_url=saved_config.get('seedance_api_url', config.SEEDANCE_API_URL) if saved_config else config.SEEDANCE_API_URL,
                             seedance_model=saved_config.get('seedance_model', config.SEEDANCE_MODEL) if saved_config else config.SEEDANCE_MODEL,
+                            base_style_prompt=saved_config.get('base_style_prompt', '') if saved_config else '',
                             tts_config=saved_config.get('tts_config', {}) if saved_config else {}
                         )
                         st.session_state.api_config_saved = True
@@ -429,6 +430,7 @@ if st.session_state.show_api_config:
                             deepseek_model=saved_config.get('deepseek_model', config.DEEPSEEK_MODEL) if saved_config else config.DEEPSEEK_MODEL,
                             seedance_api_url=sd_api_url,
                             seedance_model=sd_model,
+                            base_style_prompt=saved_config.get('base_style_prompt', '') if saved_config else '',
                             tts_config=saved_config.get('tts_config', {}) if saved_config else {}
                         )
                         st.session_state.api_config_saved = True
@@ -603,13 +605,20 @@ if st.session_state.show_api_config:
                 
                 # 更新session_state
                 st.session_state.tts_config = tts_config
-                
-                # 保存到文件（密钥通过.env管理，此处只保存非敏感配置）
+
+                # 同步TTS密钥到.env
+                _update_env_var("TTS_PROVIDER", tts_provider)
+                _update_env_var("TTS_ALIYUN_APPKEY", tts_appkey)
+                _update_env_var("TTS_ALIYUN_TOKEN", tts_token)
+                config.reload_env()
+
+                # 保存到api_config.json（非敏感配置）
                 save_api_config(
                     deepseek_api_url=saved_config.get('deepseek_api_url', config.DEEPSEEK_API_URL) if saved_config else config.DEEPSEEK_API_URL,
                     deepseek_model=saved_config.get('deepseek_model', config.DEEPSEEK_MODEL) if saved_config else config.DEEPSEEK_MODEL,
                     seedance_api_url=saved_config.get('seedance_api_url', config.SEEDANCE_API_URL) if saved_config else config.SEEDANCE_API_URL,
                     seedance_model=saved_config.get('seedance_model', config.SEEDANCE_MODEL) if saved_config else config.SEEDANCE_MODEL,
+                    base_style_prompt=saved_config.get('base_style_prompt', '') if saved_config else '',
                     tts_config=tts_config
                 )
                 

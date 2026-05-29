@@ -407,47 +407,46 @@ def batch_generate_videos(episode_num: int, shots: List[Dict] = None, config: Di
                     if cfg.DRY_RUN:
                         logger.info("DRY RUN TTS - 分镜%d: %s", shot_id,
                                     [(d.get('role'), d.get('text', '')[:20]) for d in dialogue])
-                        continue
+                    else:
+                        tts_service = get_tts_service()
+                        shot_audio_files = []
 
-                    tts_service = get_tts_service()
-                    shot_audio_files = []
+                        for d_entry in dialogue:
+                            role = d_entry.get('role', '')
+                            text = d_entry.get('text', '').strip()
+                            if not text:
+                                continue
 
-                    for d_entry in dialogue:
-                        role = d_entry.get('role', '')
-                        text = d_entry.get('text', '').strip()
-                        if not text:
-                            continue
+                            voice_id = global_voice_mapping.get(role, 'xiaoyun')
+                            logger.info("为角色 %s 生成TTS: %s... (声线: %s)", role, text[:30], voice_id)
 
-                        voice_id = global_voice_mapping.get(role, 'xiaoyun')
-                        logger.info("为角色 %s 生成TTS: %s... (声线: %s)", role, text[:30], voice_id)
-
-                        audio_file = tts_service.synthesize(
-                            text=text,
-                            voice_id=voice_id,
-                            output_path=f"./output/episode_{episode_num:03d}/tts_shot_{shot_id:03d}_{role}.wav"
-                        )
-
-                        if audio_file:
-                            shot_audio_files.append((role, audio_file))
-
-                    if shot_audio_files:
-                        merged_audio = f"./output/episode_{episode_num:03d}/tts_shot_{shot_id:03d}.wav"
-                        if len(shot_audio_files) > 1:
-                            shot_duration = config.get('shot_duration', cfg.SHOT_DURATION)
-                            AudioProcessor.mix_audio_with_timing(
-                                [(af, role) for role, af in shot_audio_files],
-                                merged_audio,
-                                total_duration=shot_duration
+                            audio_file = tts_service.synthesize(
+                                text=text,
+                                voice_id=voice_id,
+                                output_path=f"./output/episode_{episode_num:03d}/tts_shot_{shot_id:03d}_{role}.wav"
                             )
-                        else:
-                            merged_audio = shot_audio_files[0][1]
 
-                        tts_audio_files.append({
-                            'shot_id': shot_id,
-                            'audio_file': merged_audio,
-                            'dialogue': dialogue
-                        })
-                        logger.info("分镜%d TTS配音完成（%d段对话）", shot_id, len(shot_audio_files))
+                            if audio_file:
+                                shot_audio_files.append((role, audio_file))
+
+                        if shot_audio_files:
+                            merged_audio = f"./output/episode_{episode_num:03d}/tts_shot_{shot_id:03d}.wav"
+                            if len(shot_audio_files) > 1:
+                                shot_duration = config.get('shot_duration', cfg.SHOT_DURATION)
+                                AudioProcessor.mix_audio_with_timing(
+                                    [(af, role) for role, af in shot_audio_files],
+                                    merged_audio,
+                                    total_duration=shot_duration
+                                )
+                            else:
+                                merged_audio = shot_audio_files[0][1]
+
+                            tts_audio_files.append({
+                                'shot_id': shot_id,
+                                'audio_file': merged_audio,
+                                'dialogue': dialogue
+                            })
+                            logger.info("分镜%d TTS配音完成（%d段对话）", shot_id, len(shot_audio_files))
 
         if progress_callback:
             progress_callback(i + 1, total, "done" if success_count > i else "failed", shot_id)
