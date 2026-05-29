@@ -2,8 +2,11 @@ import json
 import os
 import requests
 from typing import List, Dict
-from config import *
+import config as cfg
 from character_pool import get_character_pool
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def validate_shots(shots: List[Dict]) -> tuple:
@@ -80,21 +83,19 @@ def validate_shots(shots: List[Dict]) -> tuple:
     
     return True, ""
 
-def generate_shots_from_script(script_content: str, shot_count: int, episode_num: int, config: Dict = None) -> List[Dict]:
+def generate_shots_from_script(script_content: str, shot_count: int, episode_num: int, user_config: Dict = None) -> List[Dict]:
     """
     从剧本生成标准分镜列表
     :param script_content: 完整剧本内容
     :param shot_count: 要拆分的分镜数量
     :param episode_num: 剧集编号
-    :param config: 用户配置（包含base_style_prompt）
+    :param user_config: 用户配置（包含base_style_prompt）
     :return: 标准分镜列表
     """
-    # 使用用户配置的提示词，如果没有则使用默认值
-    if config is None:
-        config = {}
-    base_style_prompt = config.get('base_style_prompt', BASE_STYLE_PROMPT)
-    # 从角色池检索本集出场的所有角色
-    char_pool = get_character_pool(RESOURCE_POOL_DIR)
+    if user_config is None:
+        user_config = {}
+    base_style_prompt = user_config.get('base_style_prompt', cfg.BASE_STYLE_PROMPT)
+    char_pool = get_character_pool(cfg.RESOURCE_POOL_DIR)
     hit_roles = char_pool.search_by_name(script_content)
     
     # 构建角色信息字符串
@@ -108,15 +109,17 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
         for r in hit_roles
     ], ensure_ascii=False, indent=2)
 
-    # 给DeepSeek的系统提示词（强制约束，解决场景漂移问题）
-    system_prompt = f"""
+    # 给DeepSeek的系统提示词
+    # 注意：base_style_prompt 和 roles_str 包含 {} 字符，不能用 f-string 直接注入
+    # 使用 .format() 替代，只对 SHOT_DURATION 做替换
+    system_prompt = """
     你是专业的AI短剧分镜师，严格遵守以下所有规则：
 
     【绝对强制规则】
     1. 所有分镜必须严格保持场景、人物穿搭、道具的前后一致性
     2. 上一个分镜出现的物品、场景、人物穿着，下一个分镜必须完全继承
     3. 绝对不允许凭空出现或消失任何物品、人物
-    4. 每个分镜严格对应{SHOT_DURATION}秒视频时长，动作不要太复杂
+    4. 每个分镜严格对应{shot_duration}秒视频时长，动作不要太复杂
     5. 严格忠于原文，不添加任何额外剧情，只补充镜头语言
 
     【输出要求】
@@ -135,31 +138,43 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
 
     【本集出场角色人设（严格遵守）】
     {roles_str}
-    """
+    """.format(
+        shot_duration=cfg.SHOT_DURATION,
+        base_style_prompt=base_style_prompt,
+        roles_str=roles_str,
+    )
 
-    # 调用DeepSeek V4 API
+    # 调用 LLM API
     payload = {
-        "model": DEEPSEEK_MODEL,
+        "model": cfg.DEEPSEEK_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"请将以下剧本拆分为{shot_count}个分镜：\n{script_content}"}
         ],
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"}
+        "temperature": 0.1
     }
 
     headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Authorization": f"Bearer {cfg.DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
 
     response = requests.post(
-        DEEPSEEK_API_URL, 
-        json=payload, 
+        cfg.DEEPSEEK_API_URL,
+        json=payload,
         headers=headers,
-        timeout=300  # 5分钟超时（处理长剧本需要更多时间）
+        timeout=300
     )
-    response.raise_for_status()
+
+    if not response.ok:
+        error_detail = response.text[:500]
+        logger.error("API请求失败 HTTP %d: %s", response.status_code, error_detail)
+        raise ValueError(
+            f"API请求失败 (HTTP {response.status_code})\n"
+            f"URL: {cfg.DEEPSEEK_API_URL}\n"
+            f"Model: {cfg.DEEPSEEK_MODEL}\n"
+            f"详情: {error_detail}"
+        )
     result = response.json()
 
     # 解析分镜列表 - 处理不同的返回格式
@@ -171,7 +186,7 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
             parsed_content = json.loads(content)
         except json.JSONDecodeError as e:
             error_msg = f"AI返回的JSON格式错误：{str(e)}\n原始内容：{content[:200]}..."
-            print(f"❌ {error_msg}")
+            logger.error(error_msg)
             raise ValueError(error_msg)
     else:
         parsed_content = content
@@ -185,16 +200,16 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
         raise ValueError(f"无法解析的分镜格式: {type(parsed_content)}")
     
     # 校验分镜数据
-    print("🔍 正在校验分镜数据格式...")
+    logger.info("正在校验分镜数据格式...")
     is_valid, error_msg = validate_shots(shots)
-    
+
     if not is_valid:
         error_msg = f"分镜数据校验失败：{error_msg}"
-        print(f"❌ {error_msg}")
-        print("💡 建议：请重新生成分镜，或检查AI模型返回格式")
+        logger.error(error_msg)
+        logger.info("建议：请重新生成分镜，或检查AI模型返回格式")
         raise ValueError(error_msg)
-    
-    print(f"✅ 分镜数据校验通过（共{len(shots)}个分镜）")
+
+    logger.info("分镜数据校验通过（共%d个分镜）", len(shots))
 
     # 确保目录存在
     os.makedirs("./shots", exist_ok=True)
@@ -204,7 +219,7 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(shots, f, ensure_ascii=False, indent=2)
 
-    print(f"✅ 分镜生成完成，已保存到：{output_path}")
-    print(f"💡 请打开文件人工审核修改，确认无误后再运行视频生成")
+    logger.info("分镜生成完成，已保存到：%s", output_path)
+    logger.info("请打开文件人工审核修改，确认无误后再运行视频生成")
 
     return shots

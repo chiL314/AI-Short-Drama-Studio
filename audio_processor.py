@@ -3,8 +3,12 @@
 使用FFmpeg进行音频合并、字幕烧录等操作
 """
 import os
+import json
 import subprocess
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class AudioProcessor:
@@ -71,24 +75,18 @@ class AudioProcessor:
             output_path
         ]
         
-        print(f"🎵 合并音频: {os.path.basename(background_audio)} + {os.path.basename(tts_audio)}")
-        
+        logger.info("合并音频: %s + %s", os.path.basename(background_audio), os.path.basename(tts_audio))
+
         try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=60
-            )
-            
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
             if result.returncode == 0:
-                print(f"✅ 音频合并成功: {output_path}")
+                logger.info("音频合并成功: %s", output_path)
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8')
                 raise RuntimeError(f"FFmpeg音频合并失败: {error_msg}")
         except Exception as e:
-            print(f"❌ 音频合并失败: {e}")
+            logger.error("音频合并失败: %s", e)
             raise
 
     @staticmethod
@@ -120,13 +118,13 @@ class AudioProcessor:
         try:
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
             if result.returncode == 0:
-                print(f"🎵 音频提取成功: {output_path}")
+                logger.info("音频提取成功: %s", output_path)
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8')
                 raise RuntimeError(f"FFmpeg音频提取失败: {error_msg}")
         except Exception as e:
-            print(f"❌ 音频提取失败: {e}")
+            logger.error("音频提取失败: %s", e)
             raise
 
     @staticmethod
@@ -170,18 +168,18 @@ class AudioProcessor:
             output_path
         ]
 
-        print(f"🎬 混音写入视频: {os.path.basename(video_path)} (背景音={bg_volume}, TTS={tts_volume})")
+        logger.info("混音写入视频: %s (背景音=%s, TTS=%s)", os.path.basename(video_path), bg_volume, tts_volume)
 
         try:
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
             if result.returncode == 0:
-                print(f"✅ 混音写入成功: {output_path}")
+                logger.info("混音写入成功: %s", output_path)
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8')
                 raise RuntimeError(f"FFmpeg混音写入失败: {error_msg}")
         except Exception as e:
-            print(f"❌ 混音写入失败: {e}")
+            logger.error("混音写入失败: %s", e)
             raise
 
     @staticmethod
@@ -217,24 +215,18 @@ class AudioProcessor:
             output_path
         ]
         
-        print(f"🎬 替换视频音频: {os.path.basename(video_path)}")
-        
+        logger.info("替换视频音频: %s", os.path.basename(video_path))
+
         try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=120
-            )
-            
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
             if result.returncode == 0:
-                print(f"✅ 视频音频替换成功: {output_path}")
+                logger.info("视频音频替换成功: %s", output_path)
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8')
                 raise RuntimeError(f"FFmpeg音频替换失败: {error_msg}")
         except Exception as e:
-            print(f"❌ 视频音频替换失败: {e}")
+            logger.error("视频音频替换失败: %s", e)
             raise
     
     @staticmethod
@@ -253,47 +245,74 @@ class AudioProcessor:
         """
         if not AudioProcessor.check_ffmpeg():
             raise RuntimeError("未找到FFmpeg，请先安装FFmpeg")
-        
+
+        # 编码一致性检查
+        codec_infos = {}
+        for vf in video_files:
+            codec_infos[vf] = AudioProcessor.get_video_codec_info(vf)
+
+        keys = ('codec', 'width', 'height', 'fps')
+        all_match = True
+
+        first_info = None
+        for vf, info in codec_infos.items():
+            if first_info is None:
+                first_info = info
+            else:
+                for k in keys:
+                    if info.get(k) != first_info.get(k):
+                        all_match = False
+                        break
+            if not all_match:
+                break
+
+        if all_match and first_info:
+            logger.info("视频编码一致 (codec=%s, %dx%d, %.2ffps)，使用 stream copy 模式",
+                        first_info['codec'], first_info['width'], first_info['height'], first_info['fps'])
+        else:
+            logger.warning("视频编码不一致，使用重编码模式:\n  %s",
+                           '\n  '.join(f"{os.path.basename(vf)}: {info}" for vf, info in codec_infos.items()))
+
         # 创建临时文件列表
         list_file = "./output/temp_merge_list.txt"
         with open(list_file, 'w', encoding='utf-8') as f:
             for video in video_files:
-                # 转换相对路径为绝对路径
                 abs_path = os.path.abspath(video)
                 f.write(f"file '{abs_path}'\n")
-        
+
         ffmpeg_path = AudioProcessor.get_ffmpeg_path()
-        cmd = [
-            ffmpeg_path, '-y',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', list_file,
-            '-c', 'copy',
-            output_path
-        ]
-        
-        print(f"🎬 合并 {len(video_files)} 个视频")
-        
+        if all_match and first_info:
+            cmd = [
+                ffmpeg_path, '-y',
+                '-f', 'concat', '-safe', '0',
+                '-i', list_file,
+                '-c', 'copy',
+                output_path
+            ]
+        else:
+            cmd = [
+                ffmpeg_path, '-y',
+                '-f', 'concat', '-safe', '0',
+                '-i', list_file,
+                '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
+                '-c:a', 'aac', '-b:a', '192k',
+                output_path
+            ]
+
+        logger.info("合并 %d 个视频", len(video_files))
+
         try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=300
-            )
-            
-            # 清理临时文件
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
             if os.path.exists(list_file):
                 os.remove(list_file)
-            
             if result.returncode == 0:
-                print(f"✅ 视频合并成功: {output_path}")
+                logger.info("视频合并成功: %s", output_path)
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8')
                 raise RuntimeError(f"FFmpeg视频合并失败: {error_msg}")
         except Exception as e:
-            print(f"❌ 视频合并失败: {e}")
+            logger.error("视频合并失败: %s", e)
             if os.path.exists(list_file):
                 os.remove(list_file)
             raise
@@ -335,19 +354,112 @@ class AudioProcessor:
 
         cmd.extend(['-filter_complex', filter_str, '-map', '[out]', output_path])
 
-        print(f"🎵 拼接 {len(audio_files)} 个音频文件")
+        logger.info("拼接 %d 个音频文件", len(audio_files))
 
         try:
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
             if result.returncode == 0:
-                print(f"✅ 音频拼接成功: {output_path}")
+                logger.info("音频拼接成功: %s", output_path)
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8')
                 raise RuntimeError(f"FFmpeg音频拼接失败: {error_msg}")
         except Exception as e:
-            print(f"❌ 音频拼接失败: {e}")
+            logger.error("音频拼接失败: %s", e)
             raise
+
+
+    @staticmethod
+    def mix_audio_with_timing(
+        audio_entries: List[Tuple[str, str]],
+        output_path: str,
+        total_duration: float = 5.0
+    ) -> str:
+        """将多段对话音频按时间轴混音（adelay + amix）
+
+        Args:
+            audio_entries: [(audio_file_path, label), ...] 按出场顺序排列
+            output_path: 输出文件路径
+            total_duration: 分镜总时长（秒）
+
+        Returns:
+            输出文件路径
+        """
+        if not audio_entries:
+            raise ValueError("音频列表为空")
+        if len(audio_entries) == 1:
+            import shutil
+            shutil.copy(audio_entries[0][0], output_path)
+            return output_path
+
+        if not AudioProcessor.check_ffmpeg():
+            raise RuntimeError("未找到FFmpeg")
+
+        n = len(audio_entries)
+        slice_dur = total_duration / n
+        ffmpeg_path = AudioProcessor.get_ffmpeg_path()
+
+        cmd = [ffmpeg_path, '-y']
+        for af, _ in audio_entries:
+            cmd.extend(['-i', af])
+
+        filter_parts = []
+        for i in range(n):
+            delay_ms = int(i * slice_dur * 1000)
+            filter_parts.append(f'[{i}:a]adelay={delay_ms}|{delay_ms}[a{i}]')
+        filter_parts.append(
+            f'{"".join(f"[a{i}]" for i in range(n))}amix=inputs={n}:duration=longest:dropout_transition=3[out]'
+        )
+
+        cmd.extend(['-filter_complex', ';'.join(filter_parts), '-map', '[out]', output_path])
+
+        logger.info("时间轴混音: %d 段, 总时长 %.1fs, 每段 %.1fs", n, total_duration, slice_dur)
+
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            if result.returncode == 0:
+                logger.info("时间轴混音成功: %s", output_path)
+                return output_path
+            else:
+                error_msg = result.stderr.decode('utf-8')
+                raise RuntimeError(f"FFmpeg时间轴混音失败: {error_msg}")
+        except Exception as e:
+            logger.error("时间轴混音失败: %s", e)
+            raise
+
+    @staticmethod
+    def get_video_codec_info(video_path: str) -> Dict:
+        """使用 ffprobe 获取视频编码信息"""
+        ffprobe_path = AudioProcessor.get_ffmpeg_path().replace('ffmpeg', 'ffprobe')
+        if not os.path.exists(ffprobe_path):
+            ffprobe_path = 'ffprobe'
+
+        cmd = [
+            ffprobe_path, '-v', 'quiet',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_name,width,height,r_frame_rate',
+            '-of', 'json',
+            video_path
+        ]
+
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+            if result.returncode == 0:
+                info = json.loads(result.stdout.decode('utf-8'))
+                stream = (info.get('streams') or [{}])[0]
+                fps_str = stream.get('r_frame_rate', '0/1')
+                num, den = fps_str.split('/') if '/' in fps_str else (fps_str, '1')
+                fps = round(int(num) / int(den), 2) if int(den) != 0 else 0
+                return {
+                    'codec': stream.get('codec_name', 'unknown'),
+                    'width': stream.get('width', 0),
+                    'height': stream.get('height', 0),
+                    'fps': fps,
+                }
+        except Exception as e:
+            logger.warning("获取视频编码信息失败 %s: %s", video_path, e)
+
+        return {'codec': 'unknown', 'width': 0, 'height': 0, 'fps': 0}
 
 
 class SubtitleGenerator:
@@ -357,23 +469,25 @@ class SubtitleGenerator:
     def generate_srt(
         shots: List[Dict],
         output_path: str,
-        language: str = 'zh'
+        language: str = 'zh',
+        shot_duration: int = 5
     ) -> str:
         """根据分镜对话生成SRT字幕文件
-        
+
         Args:
             shots: 分镜列表
             output_path: 输出文件路径
             language: 语言（zh/en/zh_jp）
-            
+            shot_duration: 单分镜时长（秒）
+
         Returns:
             SRT文件路径
         """
-        print(f"📝 生成SRT字幕文件: {output_path}")
-        
+        logger.info("生成SRT字幕文件: %s", output_path)
+
         with open(output_path, 'w', encoding='utf-8') as f:
             subtitle_index = 1
-            
+
             for shot in shots:
                 shot_id = shot.get('shot_id', 0)
                 dialogue = shot.get('dialogue', [])
@@ -383,21 +497,25 @@ class SubtitleGenerator:
                 if not dialogue:
                     continue
 
-                # 计算时间戳（假设每个分镜5秒）
-                start_time = (shot_id - 1) * 5
-                end_time = shot_id * 5
+                # 按配置的时长计算时间戳
+                shot_start = (shot_id - 1) * shot_duration
+                shot_end = shot_id * shot_duration
 
-                # 格式化时间戳
-                start_str = SubtitleGenerator._format_timestamp(start_time)
-                end_str = SubtitleGenerator._format_timestamp(end_time)
+                # 多条对话均分时间片
+                n = len(dialogue)
+                slice_duration = shot_duration / n
 
-                # 处理对话列表 [{role, text}]
-                for d_entry in dialogue:
+                for idx, d_entry in enumerate(dialogue):
                     role = d_entry.get('role', '')
                     text = d_entry.get('text', '').strip()
                     if not text:
                         continue
                     line = f"{role}：{text}"
+
+                    entry_start = shot_start + idx * slice_duration
+                    entry_end = entry_start + slice_duration
+                    start_str = SubtitleGenerator._format_timestamp(entry_start)
+                    end_str = SubtitleGenerator._format_timestamp(entry_end)
 
                     # 写入SRT格式
                     f.write(f"{subtitle_index}\n")
@@ -405,17 +523,19 @@ class SubtitleGenerator:
                     f.write(f"{line}\n\n")
 
                     subtitle_index += 1
-        
-        print(f"✅ SRT字幕生成成功: {output_path} ({subtitle_index - 1}条字幕)")
+
+        logger.info("SRT字幕生成成功: %s (%d条字幕)", output_path, subtitle_index - 1)
         return output_path
     
     @staticmethod
-    def _format_timestamp(seconds: int) -> str:
+    def _format_timestamp(seconds: float) -> str:
         """将秒数转换为SRT时间戳格式 (HH:MM:SS,mmm)"""
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
-        return f"{hours:02d}:{minutes:02d}:{secs:02d},000"
+        total_ms = int(seconds * 1000)
+        hours = total_ms // 3600000
+        minutes = (total_ms % 3600000) // 60000
+        secs = (total_ms % 60000) // 1000
+        millis = total_ms % 1000
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
     
     @staticmethod
     def burn_subtitle(
@@ -460,22 +580,16 @@ class SubtitleGenerator:
             output_path
         ]
         
-        print(f"🎬 烧录字幕: {os.path.basename(video_path)}")
-        
+        logger.info("烧录字幕: %s", os.path.basename(video_path))
+
         try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=300
-            )
-            
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
             if result.returncode == 0:
-                print(f"✅ 字幕烧录成功: {output_path}")
+                logger.info("字幕烧录成功: %s", output_path)
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8')
                 raise RuntimeError(f"FFmpeg字幕烧录失败: {error_msg}")
         except Exception as e:
-            print(f"❌ 字幕烧录失败: {e}")
+            logger.error("字幕烧录失败: %s", e)
             raise

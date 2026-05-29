@@ -1,9 +1,29 @@
 # ===================== 加载环境变量 =====================
 import os
 from dotenv import load_dotenv
+from utils.logger import get_logger
 
 # 加载 .env 文件（如果存在）
-load_dotenv()
+load_dotenv(override=True)
+
+
+def reload_env():
+    """重新加载 .env 文件并更新所有配置变量（用于运行时修改 .env 后刷新）"""
+    load_dotenv(override=True)
+    global DEEPSEEK_API_KEY, DEEPSEEK_API_URL, DEEPSEEK_MODEL
+    global SEEDANCE_API_KEY, SEEDANCE_API_URL, SEEDANCE_MODEL
+    global TTS_PROVIDER, TTS_ALIYUN_APPKEY, TTS_ALIYUN_TOKEN
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+    DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+    DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "qwen3.5-flash")
+    SEEDANCE_API_KEY = os.getenv("SEEDANCE_API_KEY", "")
+    SEEDANCE_API_URL = os.getenv("SEEDANCE_API_URL", "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks")
+    SEEDANCE_MODEL = os.getenv("SEEDANCE_MODEL", "doubao-seedance-1-0-pro-250528")
+    TTS_PROVIDER = os.getenv("TTS_PROVIDER", "aliyun")
+    TTS_ALIYUN_APPKEY = os.getenv("TTS_ALIYUN_APPKEY", "")
+    TTS_ALIYUN_TOKEN = os.getenv("TTS_ALIYUN_TOKEN", "")
+
+logger = get_logger(__name__)
 
 # ===================== 大模型API配置 =====================
 # 优先级：.env 文件 > 默认值

@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class PropPool:
@@ -21,7 +24,7 @@ class PropPool:
         if not self.json_file.exists():
             with open(self.json_file, 'w', encoding='utf-8') as f:
                 json.dump([], f, ensure_ascii=False, indent=2)
-            print(f"✅ 创建物品池文件: {self.json_file}")
+            logger.info("创建物品池文件: %s", self.json_file)
     
     def _read_json(self) -> List[Dict]:
         """读取物品池JSON"""
@@ -68,7 +71,7 @@ class PropPool:
         props.append(prop_data)
         self._write_json(props)
         
-        print(f"✅ 添加物品成功: {name} (ID: {prop_id})")
+        logger.info("添加物品成功: %s (ID: %s)", name, prop_id)
         return prop_id
     
     def delete(self, prop_id: str) -> bool:
@@ -87,11 +90,11 @@ class PropPool:
         props = [p for p in props if p['id'] != prop_id]
         
         if len(props) == original_count:
-            print(f"⚠️ 物品不存在: {prop_id}")
+            logger.warning("物品不存在: %s", prop_id)
             return False
-        
+
         self._write_json(props)
-        print(f"✅ 删除物品成功: {prop_id}")
+        logger.info("删除物品成功: %s", prop_id)
         return True
     
     def update(self, prop_id: str, **kwargs) -> bool:
@@ -111,10 +114,10 @@ class PropPool:
             if prop['id'] == prop_id:
                 prop.update(kwargs)
                 self._write_json(props)
-                print(f"✅ 更新物品成功: {prop['name']}")
+                logger.info("更新物品成功: %s", prop['name'])
                 return True
-        
-        print(f"⚠️ 物品不存在: {prop_id}")
+
+        logger.warning("物品不存在: %s", prop_id)
         return False
     
     def get_by_name(self, name: str) -> Optional[Dict]:

@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class CharacterPool:
@@ -22,7 +25,7 @@ class CharacterPool:
         if not self.json_file.exists():
             with open(self.json_file, 'w', encoding='utf-8') as f:
                 json.dump([], f, ensure_ascii=False, indent=2)
-            print(f"✅ 创建角色池文件: {self.json_file}")
+            logger.info("创建角色池文件: %s", self.json_file)
     
     def _read_json(self) -> List[Dict]:
         """读取角色池JSON"""
@@ -44,11 +47,11 @@ class CharacterPool:
         path = Path(image_path)
         
         if not path.exists():
-            print(f"⚠️ 图片文件不存在: {image_path}")
+            logger.warning("图片文件不存在: %s", image_path)
             return False
-        
+
         if path.suffix.lower() not in valid_extensions:
-            print(f"⚠️ 不支持的图片格式: {path.suffix}")
+            logger.warning("不支持的图片格式: %s", path.suffix)
             return False
         
         return True
@@ -82,7 +85,7 @@ class CharacterPool:
         
         # 验证图片路径
         if image_path and not self._validate_image_path(image_path):
-            print(f"⚠️ 图片路径无效，但仍会保存: {image_path}")
+            logger.warning("图片路径无效，但仍会保存: %s", image_path)
         
         # 生成ID
         char_id = f"char_{len(characters) + 1:03d}"
@@ -103,7 +106,7 @@ class CharacterPool:
         characters.append(character_data)
         self._write_json(characters)
         
-        print(f"✅ 添加角色成功: {name} (ID: {char_id})")
+        logger.info("添加角色成功: %s (ID: %s)", name, char_id)
         return char_id
     
     def delete(self, char_id: str) -> bool:
@@ -122,11 +125,11 @@ class CharacterPool:
         characters = [c for c in characters if c['id'] != char_id]
         
         if len(characters) == original_count:
-            print(f"⚠️ 角色不存在: {char_id}")
+            logger.warning("角色不存在: %s", char_id)
             return False
-        
+
         self._write_json(characters)
-        print(f"✅ 删除角色成功: {char_id}")
+        logger.info("删除角色成功: %s", char_id)
         return True
     
     def update(self, char_id: str, **kwargs) -> bool:
@@ -147,15 +150,15 @@ class CharacterPool:
                 # 如果更新图片路径，验证有效性
                 if 'image_path' in kwargs:
                     if not self._validate_image_path(kwargs['image_path']):
-                        print(f"⚠️ 新图片路径无效: {kwargs['image_path']}")
-                
+                        logger.warning("新图片路径无效: %s", kwargs['image_path'])
+
                 char.update(kwargs)
                 char['updated_at'] = datetime.now().isoformat()
                 self._write_json(characters)
-                print(f"✅ 更新角色成功: {char['name']}")
+                logger.info("更新角色成功: %s", char['name'])
                 return True
-        
-        print(f"⚠️ 角色不存在: {char_id}")
+
+        logger.warning("角色不存在: %s", char_id)
         return False
     
     def get_by_name(self, name: str) -> Optional[Dict]:

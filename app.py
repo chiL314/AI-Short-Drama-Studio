@@ -14,10 +14,9 @@ from datetime import datetime
 
 # 导入现有模块
 import config
-from config import *
-from character_pool import CharacterPool
-from scene_pool import ScenePool
-from prop_pool import PropPool
+from character_pool import CharacterPool, get_character_pool
+from scene_pool import ScenePool, get_scene_pool
+from prop_pool import PropPool, get_prop_pool
 from script_processor import generate_shots_from_script
 from video_generator import batch_generate_videos
 
@@ -146,8 +145,9 @@ if 'tts_config' not in st.session_state:
         'voice_mapping': {}  # 角色名 -> 音色ID
     }
 if 'config' not in st.session_state:
-    # API密钥统一从 .env 读取（config.py），不从 api_config.json 读取
-    # api_config.json 只存储非敏感配置（模型名/URL/画风等）
+    # 每次启动时从 .env 重新加载配置（确保手动修改 .env 后能生效）
+    config.reload_env()
+    # api_config.json 只存储非敏感配置（画风/TTS等），模型名/URL/密钥统一从 .env 读取
     config_path = Path("./api_config.json")
     if config_path.exists():
         with open(config_path, 'r', encoding='utf-8') as f:
@@ -162,16 +162,11 @@ if 'config' not in st.session_state:
             'audio_mode': 'tts',  # tts / seedance_audio / silent
             'enable_subtitle': True,
             'subtitle_lang': 'zh',
-            'base_style_prompt': saved_api_config.get('base_style_prompt', BASE_STYLE_PROMPT),
+            'base_style_prompt': saved_api_config.get('base_style_prompt', config.BASE_STYLE_PROMPT),
             'video_prompt_template': '',
             'action_prompt_template': '',
             'export_mode': 'shots'
         }
-        # 非敏感配置从 api_config.json 加载（模型名/URL等）
-        config.DEEPSEEK_API_URL = saved_api_config.get('deepseek_api_url', DEEPSEEK_API_URL)
-        config.DEEPSEEK_MODEL = saved_api_config.get('deepseek_model', DEEPSEEK_MODEL)
-        config.SEEDANCE_API_URL = saved_api_config.get('seedance_api_url', SEEDANCE_API_URL)
-        config.SEEDANCE_MODEL = saved_api_config.get('seedance_model', SEEDANCE_MODEL)
     else:
         st.session_state.config = {
             'shot_count': 5,
@@ -183,7 +178,7 @@ if 'config' not in st.session_state:
             'audio_mode': 'tts',  # tts / seedance_audio / silent
             'enable_subtitle': True,
             'subtitle_lang': 'zh',
-            'base_style_prompt': BASE_STYLE_PROMPT,
+            'base_style_prompt': config.BASE_STYLE_PROMPT,
             'video_prompt_template': '',
             'action_prompt_template': '',
             'export_mode': 'shots'
@@ -234,7 +229,13 @@ def save_api_keys_to_env(deepseek_api_key: str, seedance_api_key: str):
 def save_api_config(deepseek_api_url, deepseek_model,
                    seedance_api_url, seedance_model,
                    base_style_prompt="", tts_config=None):
-    """保存非敏感API配置到本地文件（密钥不存这里，通过.env管理）"""
+    """保存API配置到本地文件，同时同步模型名/URL到.env"""
+    # 同步模型名/URL到 .env
+    _update_env_var("DEEPSEEK_API_URL", deepseek_api_url)
+    _update_env_var("DEEPSEEK_MODEL", deepseek_model)
+    _update_env_var("SEEDANCE_API_URL", seedance_api_url)
+    _update_env_var("SEEDANCE_MODEL", seedance_model)
+
     config_data = {
         "deepseek_api_url": deepseek_api_url,
         "deepseek_model": deepseek_model,
@@ -249,6 +250,7 @@ def save_api_config(deepseek_api_url, deepseek_model,
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, ensure_ascii=False, indent=2)
 
+    # 同步更新内存中的 config 模块变量
     config.DEEPSEEK_API_URL = deepseek_api_url
     config.DEEPSEEK_MODEL = deepseek_model
     config.SEEDANCE_API_URL = seedance_api_url
@@ -361,13 +363,13 @@ if st.session_state.show_api_config:
                 )
                 ds_api_url = st.text_input(
                     "API地址",
-                    value=saved_config.get('deepseek_api_url', config.DEEPSEEK_API_URL) if saved_config else config.DEEPSEEK_API_URL,
+                    value=config.DEEPSEEK_API_URL,
                     help="例如：https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
                 )
             with col2:
                 ds_model = st.text_input(
                     "模型名称",
-                    value=saved_config.get('deepseek_model', config.DEEPSEEK_MODEL) if saved_config else config.DEEPSEEK_MODEL,
+                    value=config.DEEPSEEK_MODEL,
                     help="例如：qwen3.5-flash"
                 )
 
@@ -406,13 +408,13 @@ if st.session_state.show_api_config:
                 )
                 sd_api_url = st.text_input(
                     "API地址",
-                    value=saved_config.get('seedance_api_url', config.SEEDANCE_API_URL) if saved_config else config.SEEDANCE_API_URL,
+                    value=config.SEEDANCE_API_URL,
                     help="例如：https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks"
                 )
             with col4:
                 sd_model = st.text_input(
                     "模型名称",
-                    value=saved_config.get('seedance_model', config.SEEDANCE_MODEL) if saved_config else config.SEEDANCE_MODEL,
+                    value=config.SEEDANCE_MODEL,
                     help="例如：doubao-seedance-1-0-pro-250528"
                 )
 
@@ -866,7 +868,7 @@ elif current_step == 1:
                             st.session_state.script_content,
                             st.session_state.config['shot_count'],
                             episode_num=1,
-                            config=st.session_state.config  # 传递用户配置！
+                            user_config=st.session_state.config
                         )
                         
                         elapsed = time.time() - start_time
@@ -928,11 +930,11 @@ elif current_step == 2:
 elif current_step == 3:
     st.markdown("## 🔗 关联资源池")
     
-    # 初始化资源池
-    char_pool = CharacterPool()
-    scene_pool = ScenePool()
-    prop_pool = PropPool()
-    
+    # 初始化资源池（使用全局单例）
+    char_pool = get_character_pool()
+    scene_pool = get_scene_pool()
+    prop_pool = get_prop_pool()
+
     # 获取所有资源
     all_characters = char_pool.get_all()
     all_scenes = scene_pool.get_all()
@@ -1440,7 +1442,7 @@ elif current_step == 3:
                 except Exception:
                     available_voices = []
                 if not available_voices:
-                    available_voices = DEFAULT_VOICE_OPTIONS  # 未配置TTS密钥时用默认列表
+                    available_voices = config.DEFAULT_VOICE_OPTIONS  # 未配置TTS密钥时用默认列表
                 st.caption(f"🎤 已加载 {len(available_voices)} 个可用声线")
 
             # 初始化声线映射
@@ -1715,50 +1717,81 @@ elif current_step == 4:
             st.rerun()
     with col2:
         if st.button("🎬 开始生成视频", type="primary", use_container_width=True):
-            with st.spinner("正在生成视频，这可能需要几分钟..."):
-                try:
-                    # 显示资源使用情况
-                    st.markdown("### 📊 资源使用统计")
+            try:
+                # 显示资源使用情况
+                st.markdown("### 📊 资源使用统计")
 
-                    rm = st.session_state.resource_mapping
-                    global_chars = rm.get('global_character_mapping', {})
-                    global_descs = rm.get('global_character_descs', {})
-                    has_global_chars = bool(global_chars or global_descs)
+                rm = st.session_state.resource_mapping
+                global_chars = rm.get('global_character_mapping', {})
+                global_descs = rm.get('global_character_descs', {})
+                has_global_chars = bool(global_chars or global_descs)
 
-                    total_shots = len(st.session_state.shots)
-                    shots_with_resources = 0
-                    shots_without_resources = 0
+                total_shots = len(st.session_state.shots)
+                shots_with_resources = 0
+                shots_without_resources = 0
 
-                    for i, shot in enumerate(st.session_state.shots):
-                        shot_m = rm.get('shots', {}).get(i, {})
-                        has_shot_resources = bool(
-                            shot_m.get('scene') or shot_m.get('props')
-                        )
-                        if has_global_chars or has_shot_resources:
-                            shots_with_resources += 1
-                        else:
-                            shots_without_resources += 1
-                    
-                    col_r1, col_r2 = st.columns(2)
-                    with col_r1:
-                        st.success(f"✅ {shots_with_resources} 个分镜使用资源池资源")
-                    with col_r2:
-                        st.info(f"🤖 {shots_without_resources} 个分镜由AI自动生成")
-                    
-                    st.divider()
-                    
-                    # 调用视频生成（传入分镜、用户配置和资源映射）
-                    batch_generate_videos(
-                        episode_num=1,
-                        shots=st.session_state.shots,
-                        config=st.session_state.config,
-                        resource_mapping=st.session_state.resource_mapping
+                for i, shot in enumerate(st.session_state.shots):
+                    shot_m = rm.get('shots', {}).get(i, {})
+                    has_shot_resources = bool(
+                        shot_m.get('scene') or shot_m.get('props')
                     )
-                    st.success("✅ 视频生成完成！")
-                    st.session_state.current_step = 5
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ 视频生成失败：{str(e)}")
+                    if has_global_chars or has_shot_resources:
+                        shots_with_resources += 1
+                    else:
+                        shots_without_resources += 1
+
+                col_r1, col_r2 = st.columns(2)
+                with col_r1:
+                    st.success(f"✅ {shots_with_resources} 个分镜使用资源池资源")
+                with col_r2:
+                    st.info(f"🤖 {shots_without_resources} 个分镜由AI自动生成")
+
+                st.divider()
+
+                # 进度UI
+                st.markdown("### 🎬 生成进度")
+                progress_bar = st.progress(0)
+                status_container = st.empty()
+                shot_progress_cols = st.columns(min(total_shots, 8))
+
+                # 断点续跑预检
+                output_dir = "./output/episode_001"
+                skipped_count = 0
+                for shot in st.session_state.shots:
+                    video_path = f"{output_dir}/shot_{shot['shot_id']:03d}.mp4"
+                    if os.path.exists(video_path):
+                        skipped_count += 1
+                if skipped_count > 0:
+                    st.info(f"🔄 检测到 {skipped_count}/{total_shots} 个分镜已存在，将自动跳过（断点续跑）")
+
+                def on_progress(current: int, total: int, status: str, shot_id: int):
+                    pct = min(current / total, 1.0)
+                    progress_bar.progress(pct)
+                    status_map = {
+                        'generating': f"🎬 正在生成分镜 {shot_id}/{total}...",
+                        'done': f"✅ 分镜 {shot_id} 完成",
+                        'failed': f"❌ 分镜 {shot_id} 失败",
+                        'tts_mixing': "🎤 正在混音TTS...",
+                        'subtitles': "📝 正在烧录字幕...",
+                        'merging': "🎬 正在合并视频...",
+                    }
+                    status_container.info(status_map.get(status, status))
+
+                # 调用视频生成（传入进度回调）
+                batch_generate_videos(
+                    episode_num=1,
+                    shots=st.session_state.shots,
+                    config=st.session_state.config,
+                    resource_mapping=st.session_state.resource_mapping,
+                    progress_callback=on_progress
+                )
+                progress_bar.progress(1.0)
+                status_container.success("✅ 视频生成完成！")
+                st.session_state.current_step = 5
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ 视频生成失败：{str(e)}")
 
 
 # ==================== 步骤5: 检查导出 ====================
@@ -1840,10 +1873,10 @@ with st.sidebar:
     
     st.markdown("### 📊 资源统计")
     
-    char_pool = CharacterPool()
-    scene_pool = ScenePool()
-    prop_pool = PropPool()
-    
+    char_pool = get_character_pool()
+    scene_pool = get_scene_pool()
+    prop_pool = get_prop_pool()
+
     st.metric("角色数量", char_pool.count())
     st.metric("场景数量", scene_pool.count())
     st.metric("物品数量", prop_pool.count())

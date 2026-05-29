@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ScenePool:
@@ -21,7 +24,7 @@ class ScenePool:
         if not self.json_file.exists():
             with open(self.json_file, 'w', encoding='utf-8') as f:
                 json.dump([], f, ensure_ascii=False, indent=2)
-            print(f"✅ 创建场景池文件: {self.json_file}")
+            logger.info("创建场景池文件: %s", self.json_file)
     
     def _read_json(self) -> List[Dict]:
         """读取场景池JSON"""
@@ -68,7 +71,7 @@ class ScenePool:
         scenes.append(scene_data)
         self._write_json(scenes)
         
-        print(f"✅ 添加场景成功: {name} (ID: {scene_id})")
+        logger.info("添加场景成功: %s (ID: %s)", name, scene_id)
         return scene_id
     
     def delete(self, scene_id: str) -> bool:
@@ -87,11 +90,11 @@ class ScenePool:
         scenes = [s for s in scenes if s['id'] != scene_id]
         
         if len(scenes) == original_count:
-            print(f"⚠️ 场景不存在: {scene_id}")
+            logger.warning("场景不存在: %s", scene_id)
             return False
-        
+
         self._write_json(scenes)
-        print(f"✅ 删除场景成功: {scene_id}")
+        logger.info("删除场景成功: %s", scene_id)
         return True
     
     def update(self, scene_id: str, **kwargs) -> bool:
@@ -111,10 +114,10 @@ class ScenePool:
             if scene['id'] == scene_id:
                 scene.update(kwargs)
                 self._write_json(scenes)
-                print(f"✅ 更新场景成功: {scene['name']}")
+                logger.info("更新场景成功: %s", scene['name'])
                 return True
-        
-        print(f"⚠️ 场景不存在: {scene_id}")
+
+        logger.warning("场景不存在: %s", scene_id)
         return False
     
     def get_by_name(self, name: str) -> Optional[Dict]:

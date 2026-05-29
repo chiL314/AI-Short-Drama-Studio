@@ -6,7 +6,10 @@ import os
 import json
 import requests
 from typing import Dict, List, Optional
-from config import *
+import config as cfg
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class TTSService:
@@ -18,7 +21,7 @@ class TTSService:
         Args:
             provider: TTS服务商（aliyun/xunfei/azure）
         """
-        self.provider = provider or TTS_PROVIDER
+        self.provider = provider or cfg.TTS_PROVIDER
         self.voice_cache = {}  # 缓存已生成的音频
         
     def get_available_voices(self) -> List[Dict]:
@@ -45,14 +48,14 @@ class TTSService:
         import requests
         
         # 检查是否配置了API密钥
-        if not TTS_ALIYUN_TOKEN:
+        if not cfg.TTS_ALIYUN_TOKEN:
             return []  # 未配置，返回空列表
         
         try:
             # 调用阿里云百炼平台音色列表API
             url = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization"
             headers = {
-                "Authorization": f"Bearer {TTS_ALIYUN_TOKEN}",
+                "Authorization": f"Bearer {cfg.TTS_ALIYUN_TOKEN}",
                 "Content-Type": "application/json"
             }
             
@@ -92,26 +95,26 @@ class TTSService:
                         "target_model": target_model
                     })
                 
-                print(f"✅ 从阿里云API获取到 {len(voices)} 个音色")
+                logger.info("从阿里云API获取到 %d 个音色", len(voices))
                 return voices
             else:
-                print(f"⚠️ 阿里云API调用失败: HTTP {response.status_code}")
+                logger.warning("阿里云API调用失败: HTTP %d", response.status_code)
                 return []
-                
+
         except Exception as e:
-            print(f"⚠️ 获取阿里云音色列表失败: {e}")
-            return []  # 失败返回空列表
+            logger.warning("获取阿里云音色列表失败: %s", e)
+            return []
     
     def _fetch_xunfei_voices(self) -> List[Dict]:
         """从讯飞TTS API获取音色列表"""
         # TODO: 实现讯飞API调用
-        print("⚠️ 讯飞TTS音色列表API尚未实现")
+        logger.warning("讯飞TTS音色列表API尚未实现")
         return []
     
     def _fetch_azure_voices(self) -> List[Dict]:
         """从Azure TTS API获取音色列表"""
         # TODO: 实现Azure API调用
-        print("⚠️ Azure TTS音色列表API尚未实现")
+        logger.warning("Azure TTS音色列表API尚未实现")
         return []
     
     def synthesize(self, text: str, voice_id: str = None, output_path: str = None) -> str:
@@ -130,7 +133,7 @@ class TTSService:
         
         # 默认音色
         if not voice_id:
-            voice_id = DEFAULT_VOICE_OPTIONS[0]["id"]
+            voice_id = cfg.DEFAULT_VOICE_OPTIONS[0]["id"]
         
         # 检查缓存
         cache_key = f"{text}_{voice_id}"
@@ -166,7 +169,7 @@ class TTSService:
         """
         import requests
         
-        if not TTS_ALIYUN_TOKEN:
+        if not cfg.TTS_ALIYUN_TOKEN:
             raise ValueError("未配置阿里云TTS Token，请在API配置中设置")
         
         if output_path is None:
@@ -177,7 +180,7 @@ class TTSService:
             # 调用阿里云TTS API
             url = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/speech-synthesis"
             headers = {
-                "Authorization": f"Bearer {TTS_ALIYUN_TOKEN}",
+                "Authorization": f"Bearer {cfg.TTS_ALIYUN_TOKEN}",
                 "Content-Type": "application/json"
             }
             
@@ -196,36 +199,31 @@ class TTSService:
                 }
             }
             
-            print(f"🎵 正在调用阿里云TTS: {voice_id}")
-            print(f"   文本: {text[:50]}{'...' if len(text) > 50 else ''}")
-            
+            logger.info("正在调用阿里云TTS: %s, 文本: %s", voice_id, text[:50])
             response = requests.post(url, json=payload, headers=headers, timeout=30)
-            
             if response.status_code == 200:
-                # 保存音频文件
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
-                
-                print(f"✅ TTS生成成功: {output_path}")
+                logger.info("TTS生成成功: %s", output_path)
                 return output_path
             else:
                 error_msg = response.json().get('message', '未知错误')
                 raise Exception(f"TTS API调用失败 (HTTP {response.status_code}): {error_msg}")
-                
+
         except Exception as e:
-            print(f"❌ TTS调用失败: {e}")
+            logger.error("TTS调用失败: %s", e)
             raise
     
     def _xunfei_tts(self, text: str, voice_id: str, output_path: str = None) -> str:
         """讯飞TTS"""
         # TODO: 实现讯飞TTS
-        print(f"🎵 使用讯飞TTS合成语音: {voice_id}")
+        logger.info("使用讯飞TTS合成语音: %s", voice_id)
         return None
     
     def _azure_tts(self, text: str, voice_id: str, output_path: str = None) -> str:
         """Azure TTS"""
         # TODO: 实现Azure TTS
-        print(f"🎵 使用Azure TTS合成语音: {voice_id}")
+        logger.info("使用Azure TTS合成语音: %s", voice_id)
         return None
 
 

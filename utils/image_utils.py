@@ -4,6 +4,9 @@
 import os
 import base64
 from typing import List
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def image_to_base64(image_path: str) -> str:
@@ -61,12 +64,12 @@ def images_to_base64_batch(image_paths: List[str]) -> List[str]:
         try:
             base64_image = image_to_base64(image_path)
             base64_images.append(base64_image)
-            print(f"📸 已加载图片: {image_path}")
+            logger.info("已加载图片: %s", image_path)
         except FileNotFoundError:
-            print(f"⚠️ 图片文件不存在: {image_path}")
+            logger.warning("图片文件不存在: %s", image_path)
         except ValueError as e:
-            print(f"⚠️ {e}")
+            logger.warning("%s", e)
         except Exception as e:
-            print(f"❌ 加载图片失败 {image_path}: {e}")
+            logger.error("加载图片失败 %s: %s", image_path, e)
     
     return base64_images
