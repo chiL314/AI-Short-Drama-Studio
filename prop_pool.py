@@ -96,30 +96,7 @@ class PropPool:
         self._write_json(props)
         logger.info("删除物品成功: %s", prop_id)
         return True
-    
-    def update(self, prop_id: str, **kwargs) -> bool:
-        """
-        更新物品信息
-        
-        Args:
-            prop_id: 物品ID
-            **kwargs: 要更新的字段
-        
-        Returns:
-            是否更新成功
-        """
-        props = self._read_json()
-        
-        for prop in props:
-            if prop['id'] == prop_id:
-                prop.update(kwargs)
-                self._write_json(props)
-                logger.info("更新物品成功: %s", prop['name'])
-                return True
 
-        logger.warning("物品不存在: %s", prop_id)
-        return False
-    
     def get_by_name(self, name: str) -> Optional[Dict]:
         """
         根据物品名获取完整配置
@@ -137,36 +114,11 @@ class PropPool:
                 return prop
         
         return None
-    
-    def get_by_id(self, prop_id: str) -> Optional[Dict]:
-        """根据ID获取物品"""
-        props = self._read_json()
-        
-        for prop in props:
-            if prop['id'] == prop_id:
-                return prop
-        
-        return None
-    
+
     def get_all(self) -> List[Dict]:
         """获取所有物品"""
         return self._read_json()
-    
-    def get_image_path(self, name: str) -> Optional[str]:
-        """
-        获取物品的本地图片路径
-        
-        Args:
-            name: 物品名称
-        
-        Returns:
-            图片路径，不存在返回None
-        """
-        prop = self.get_by_name(name)
-        if prop:
-            return prop.get('image_path', '')
-        return None
-    
+
     def search_by_name(self, text: str) -> List[Dict]:
         """
         根据文本检索物品（匹配物品名）
@@ -179,11 +131,7 @@ class PropPool:
         """
         props = self._read_json()
         return [p for p in props if p['name'] in text]
-    
-    def exists(self, name: str) -> bool:
-        """检查物品是否存在"""
-        return self.get_by_name(name) is not None
-    
+
     def count(self) -> int:
         """获取物品数量"""
         return len(self._read_json())

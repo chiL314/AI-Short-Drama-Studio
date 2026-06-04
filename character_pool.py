@@ -178,17 +178,7 @@ class CharacterPool:
                 return char
         
         return None
-    
-    def get_by_id(self, char_id: str) -> Optional[Dict]:
-        """根据ID获取角色"""
-        characters = self._read_json()
-        
-        for char in characters:
-            if char['id'] == char_id:
-                return char
-        
-        return None
-    
+
     def get_all(self) -> List[Dict]:
         """获取所有角色"""
         return self._read_json()
@@ -254,11 +244,7 @@ class CharacterPool:
             parts.append(f"性格{char['character']}")
         
         return "，".join(parts)
-    
-    def exists(self, name: str) -> bool:
-        """检查角色是否存在"""
-        return self.get_by_name(name) is not None
-    
+
     def count(self) -> int:
         """获取角色数量"""
         return len(self._read_json())

@@ -14,12 +14,6 @@ from audio_processor import AudioProcessor, SubtitleGenerator
 logger = get_logger(__name__)
 
 
-def create_output_dir(episode_num: int):
-    """创建输出文件夹"""
-    os.makedirs(f"./output/episode_{episode_num:03d}", exist_ok=True)
-    os.makedirs("./shots", exist_ok=True)
-
-
 def generate_single_video(shot: Dict, task_id: str, config: Dict = None, resource_mapping: Dict = None, force: bool = False) -> bool:
     """生成单个分镜视频（含TTS配音），供批量生成和单镜重做复用
 
@@ -84,6 +78,7 @@ def generate_single_video(shot: Dict, task_id: str, config: Dict = None, resourc
 
     # ---------- TTS 配音后处理（单镜重做时也需要重新配音）----------
     audio_mode = config.get('audio_mode', 'tts') if config else 'tts'
+    shot_duration = config.get('shot_duration', cfg.SHOT_DURATION) if config else cfg.SHOT_DURATION
     if audio_mode == 'tts' and not cfg.DRY_RUN:
         dialogue = shot.get("dialogue", [])
         narration = shot.get("narration", "")
@@ -122,7 +117,6 @@ def generate_single_video(shot: Dict, task_id: str, config: Dict = None, resourc
             if shot_audio_files:
                 merged_audio = f"{output_dir}/tts_shot_{shot_id:03d}.wav"
                 if len(shot_audio_files) > 1:
-                    shot_duration = config.get('shot_duration', cfg.SHOT_DURATION)
                     AudioProcessor.mix_audio_with_timing(
                         [(af, role) for role, af in shot_audio_files],
                         merged_audio,
@@ -145,6 +139,36 @@ def generate_single_video(shot: Dict, task_id: str, config: Dict = None, resourc
                         logger.info("分镜%d TTS配音+背景音混合完成", shot_id)
                 except Exception as e:
                     logger.error("分镜%d TTS配音失败: %s", shot_id, e)
+
+            # ---------- 字幕烧录（根据TTS音频实际时长生成时间轴）----------
+            if config.get('enable_subtitle', False):
+                entries = []
+                for role, af in shot_audio_files:
+                    if role == '旁白':
+                        label = f"旁白：{narration}"
+                    else:
+                        d_text = next((d['text'] for d in dialogue if d.get('role') == role), '')
+                        label = f"{role}：{d_text}"
+                    dur = AudioProcessor.get_audio_duration(af) if os.path.exists(af) else 0
+                    entries.append((label, dur))
+
+                if entries:
+                    shot_srt = f"{output_dir}/subtitles_shot_{shot_id:03d}.srt"
+                    SubtitleGenerator.generate_shot_srt(entries, shot_srt, shot_duration=shot_duration)
+                    output_sub = f"{output_dir}/shot_{shot_id:03d}_with_subtitle.mp4"
+                    try:
+                        SubtitleGenerator.burn_subtitle(
+                            video_path=video_path,
+                            subtitle_path=shot_srt,
+                            output_path=output_sub,
+                            font_size=24,
+                            font_color='white'
+                        )
+                        if os.path.exists(output_sub):
+                            os.replace(output_sub, video_path)
+                            logger.info("分镜%d 字幕烧录完成", shot_id)
+                    except Exception as e:
+                        logger.error("分镜%d 字幕烧录失败: %s", shot_id, e)
 
     return True
 
@@ -566,6 +590,10 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
                     if progress_callback:
                         progress_callback(success_count, total, "failed", shot_id)
 
+    # ---------- 收集所有分镜的 TTS 条目信息（用于字幕时间轴）----------
+    shot_tts_entries = {}  # shot_id -> [(text, audio_path), ...]
+    shot_duration = config.get('shot_duration', cfg.SHOT_DURATION) if config else cfg.SHOT_DURATION
+
     # Phase 3: TTS配音（在所有视频生成完成后统一处理）
     if audio_mode == 'tts' and not cfg.DRY_RUN:
         all_shots = {}  # shot_id -> shot
@@ -583,19 +611,31 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
             if not dialogue and not narration:
                 continue
 
+            global_voice_mapping = resource_mapping.get('global_voice_mapping', {}) if resource_mapping else {}
+            tts_service = get_tts_service()
+            shot_audio_files = []
+
             # 检查是否已有TTS音频（断点续跑）
             tts_file = f"{output_dir}/tts_shot_{shot_id:03d}.wav"
             if os.path.exists(tts_file):
                 tts_audio_files.append({
                     'shot_id': shot_id,
                     'audio_file': tts_file,
-                    'dialogue': dialogue
                 })
+                # 断点续跑时从已有文件重建 entries 列表
+                entries = []
+                for d_entry in dialogue:
+                    role = d_entry.get('role', '')
+                    text = d_entry.get('text', '').strip()
+                    if text:
+                        af = f"{output_dir}/tts_shot_{shot_id:03d}_{role}.wav"
+                        label = f"{role}：{text}"
+                        entries.append((label, af))
+                if narration:
+                    af = f"{output_dir}/tts_shot_{shot_id:03d}_旁白.wav"
+                    entries.append((f"旁白：{narration}", af))
+                shot_tts_entries[shot_id] = entries
                 continue
-
-            global_voice_mapping = resource_mapping.get('global_voice_mapping', {}) if resource_mapping else {}
-            tts_service = get_tts_service()
-            shot_audio_files = []
 
             for d_entry in dialogue:
                 role = d_entry.get('role', '')
@@ -626,7 +666,6 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
             if shot_audio_files:
                 merged_audio = f"{output_dir}/tts_shot_{shot_id:03d}.wav"
                 if len(shot_audio_files) > 1:
-                    shot_duration = config.get('shot_duration', cfg.SHOT_DURATION)
                     AudioProcessor.mix_audio_with_timing(
                         [(af, role) for role, af in shot_audio_files],
                         merged_audio,
@@ -638,8 +677,19 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
                 tts_audio_files.append({
                     'shot_id': shot_id,
                     'audio_file': merged_audio,
-                    'dialogue': dialogue
                 })
+
+                # 记录 TTS 条目用于字幕时间轴
+                entries = []
+                for role, af in shot_audio_files:
+                    if role == '旁白':
+                        label = f"旁白：{narration}"
+                    else:
+                        d_text = next((d['text'] for d in dialogue if d.get('role') == role), '')
+                        label = f"{role}：{d_text}"
+                    entries.append((label, af))
+                shot_tts_entries[shot_id] = entries
+
                 logger.info("分镜%d TTS配音完成（%d段对话）", shot_id, len(shot_audio_files))
     elif audio_mode == 'tts' and cfg.DRY_RUN:
         all_shots = {}
@@ -686,40 +736,57 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
                     except Exception as e:
                         logger.error("分镜%d TTS配音失败: %s", shot_id, e)
 
-        # 字幕处理
+        # 字幕处理（按实际TTS音频时长生成每镜独立SRT）
         if enable_subtitle:
             logger.info("开始字幕烧录处理...")
             if progress_callback:
                 progress_callback(total, total, "subtitles", 0)
 
-            srt_file = f"{output_dir}/subtitles.srt"
             try:
-                SubtitleGenerator.generate_srt(
-                    shots=shots,
-                    output_path=srt_file,
-                    language=config.get('subtitle_lang', 'zh'),
-                    shot_duration=config.get('shot_duration', cfg.SHOT_DURATION)
-                )
-
                 for shot in shots:
                     shot_id = shot['shot_id']
                     video_file = f"{output_dir}/shot_{shot_id:03d}.mp4"
-                    output_video = f"{output_dir}/shot_{shot_id:03d}_with_subtitle.mp4"
+                    if not os.path.exists(video_file):
+                        continue
 
-                    if os.path.exists(video_file):
-                        try:
-                            SubtitleGenerator.burn_subtitle(
-                                video_path=video_file,
-                                subtitle_path=srt_file,
-                                output_path=output_video,
-                                font_size=24,
-                                font_color='white'
-                            )
-                            if os.path.exists(output_video):
-                                os.replace(output_video, video_file)
-                                logger.info("分镜%d 字幕烧录完成", shot_id)
-                        except Exception as e:
-                            logger.error("分镜%d 字幕烧录失败: %s", shot_id, e)
+                    # 从 TTS 阶段收集的条目获取文本+音频路径
+                    entries = shot_tts_entries.get(shot_id, [])
+                    if not entries:
+                        continue
+
+                    # 测量每段音频的实际时长
+                    timed_entries = []
+                    for text, audio_path in entries:
+                        if os.path.exists(audio_path):
+                            dur = AudioProcessor.get_audio_duration(audio_path)
+                        else:
+                            dur = 0
+                        timed_entries.append((text, dur))
+
+                    if not timed_entries:
+                        continue
+
+                    # 生成该分镜的独立SRT（时间轴从0开始，匹配音频真实时长）
+                    shot_srt = f"{output_dir}/subtitles_shot_{shot_id:03d}.srt"
+                    SubtitleGenerator.generate_shot_srt(
+                        timed_entries, shot_srt,
+                        shot_duration=shot_duration
+                    )
+
+                    output_video = f"{output_dir}/shot_{shot_id:03d}_with_subtitle.mp4"
+                    try:
+                        SubtitleGenerator.burn_subtitle(
+                            video_path=video_file,
+                            subtitle_path=shot_srt,
+                            output_path=output_video,
+                            font_size=24,
+                            font_color='white'
+                        )
+                        if os.path.exists(output_video):
+                            os.replace(output_video, video_file)
+                            logger.info("分镜%d 字幕烧录完成", shot_id)
+                    except Exception as e:
+                        logger.error("分镜%d 字幕烧录失败: %s", shot_id, e)
 
                 logger.info("字幕处理完成")
             except Exception as e:

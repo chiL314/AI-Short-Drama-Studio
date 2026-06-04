@@ -3,7 +3,6 @@
 """
 import os
 import base64
-from typing import List
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -44,32 +43,3 @@ def image_to_base64(image_path: str) -> str:
         raise ValueError(f"不支持的图片格式: {ext}，支持的格式: {', '.join(mime_types.keys())}")
     
     return f"data:{mime_type};base64,{encoded}"
-
-
-def images_to_base64_batch(image_paths: List[str]) -> List[str]:
-    """批量将本地图片转换为base64格式
-    
-    Args:
-        image_paths: 图片本地路径列表
-        
-    Returns:
-        base64编码的图片字符串列表
-        
-    Note:
-        跳过不存在的文件和格式不支持的文件，并打印警告信息
-    """
-    base64_images = []
-    
-    for image_path in image_paths:
-        try:
-            base64_image = image_to_base64(image_path)
-            base64_images.append(base64_image)
-            logger.info("已加载图片: %s", image_path)
-        except FileNotFoundError:
-            logger.warning("图片文件不存在: %s", image_path)
-        except ValueError as e:
-            logger.warning("%s", e)
-        except Exception as e:
-            logger.error("加载图片失败 %s: %s", image_path, e)
-    
-    return base64_images

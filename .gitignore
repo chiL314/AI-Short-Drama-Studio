@@ -33,6 +33,9 @@ env/
 *.swo
 *~
 
+# Claude Code
+.claude/
+
 # Streamlit
 .streamlit/
 

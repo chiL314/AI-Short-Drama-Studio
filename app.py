@@ -15,9 +15,9 @@ from datetime import datetime
 # 导入现有模块
 import config
 import task_manager
-from character_pool import CharacterPool, get_character_pool
-from scene_pool import ScenePool, get_scene_pool
-from prop_pool import PropPool, get_prop_pool
+from character_pool import get_character_pool
+from scene_pool import get_scene_pool
+from prop_pool import get_prop_pool
 from script_processor import generate_shots_from_script
 from video_generator import batch_generate_videos, generate_single_video
 
@@ -2024,13 +2024,49 @@ with st.sidebar:
     st.divider()
     
     st.markdown("### ⚙️ 快速配置")
-    if st.button("添加角色", use_container_width=True):
-        with st.form("add_character_form"):
-            name = st.text_input("角色名称")
-            appearance = st.text_area("外观描述")
-            image_path = st.text_input("图片路径")
-            submitted = st.form_submit_button("提交")
-            if submitted and name:
-                char_pool.add(name=name, appearance=appearance, image_path=image_path)
-                st.success("添加成功！")
+
+    if 'sidebar_show_add_char' not in st.session_state:
+        st.session_state.sidebar_show_add_char = False
+
+    if not st.session_state.sidebar_show_add_char:
+        if st.button("➕ 添加角色", use_container_width=True):
+            st.session_state.sidebar_show_add_char = True
+            st.rerun()
+    else:
+        with st.form("sidebar_add_char_form"):
+            st.subheader("快速添加角色")
+            name = st.text_input("角色名称", placeholder="例如：林风")
+            appearance = st.text_area("外观描述", placeholder="例如：男性，25岁，短发，身材高大，五官轮廓分明")
+            clothes = st.text_input("服装描述", placeholder="例如：深灰色连帽卫衣、黑色长裤")
+            character = st.text_input("性格描述", placeholder="例如：沉稳内敛，眼神锐利")
+            image_path = st.text_input("图片路径", placeholder="D:/角色库/男主A.jpg")
+            tags = st.text_input("标签（逗号分隔）", placeholder="例如：主角,现代,悬疑")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                submitted = st.form_submit_button("✅ 添加", type="primary", use_container_width=True)
+            with c2:
+                cancelled = st.form_submit_button("❌ 取消", use_container_width=True)
+
+            if submitted:
+                if name and image_path:
+                    try:
+                        char_pool.add(
+                            name=name,
+                            appearance=appearance,
+                            clothes=clothes,
+                            character=character,
+                            image_path=image_path,
+                            tags=[t.strip() for t in tags.split(",") if t.strip()]
+                        )
+                        st.success(f"✅ 角色 '{name}' 添加成功！")
+                        st.session_state.sidebar_show_add_char = False
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(f"❌ {e}")
+                else:
+                    st.error("请填写角色名称和图片路径")
+
+            if cancelled:
+                st.session_state.sidebar_show_add_char = False
                 st.rerun()

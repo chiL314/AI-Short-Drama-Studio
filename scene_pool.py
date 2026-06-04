@@ -96,30 +96,7 @@ class ScenePool:
         self._write_json(scenes)
         logger.info("删除场景成功: %s", scene_id)
         return True
-    
-    def update(self, scene_id: str, **kwargs) -> bool:
-        """
-        更新场景信息
-        
-        Args:
-            scene_id: 场景ID
-            **kwargs: 要更新的字段
-        
-        Returns:
-            是否更新成功
-        """
-        scenes = self._read_json()
-        
-        for scene in scenes:
-            if scene['id'] == scene_id:
-                scene.update(kwargs)
-                self._write_json(scenes)
-                logger.info("更新场景成功: %s", scene['name'])
-                return True
 
-        logger.warning("场景不存在: %s", scene_id)
-        return False
-    
     def get_by_name(self, name: str) -> Optional[Dict]:
         """
         根据场景名获取完整配置
@@ -137,36 +114,11 @@ class ScenePool:
                 return scene
         
         return None
-    
-    def get_by_id(self, scene_id: str) -> Optional[Dict]:
-        """根据ID获取场景"""
-        scenes = self._read_json()
-        
-        for scene in scenes:
-            if scene['id'] == scene_id:
-                return scene
-        
-        return None
-    
+
     def get_all(self) -> List[Dict]:
         """获取所有场景"""
         return self._read_json()
-    
-    def get_image_path(self, name: str) -> Optional[str]:
-        """
-        获取场景的本地图片路径
-        
-        Args:
-            name: 场景名称
-        
-        Returns:
-            图片路径，不存在返回None
-        """
-        scene = self.get_by_name(name)
-        if scene:
-            return scene.get('image_path', '')
-        return None
-    
+
     def search_by_name(self, text: str) -> List[Dict]:
         """
         根据文本检索场景（匹配场景名）
@@ -179,11 +131,7 @@ class ScenePool:
         """
         scenes = self._read_json()
         return [s for s in scenes if s['name'] in text]
-    
-    def exists(self, name: str) -> bool:
-        """检查场景是否存在"""
-        return self.get_by_name(name) is not None
-    
+
     def count(self) -> int:
         """获取场景数量"""
         return len(self._read_json())
