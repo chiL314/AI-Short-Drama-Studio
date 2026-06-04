@@ -45,6 +45,9 @@ api_config.json
 .env.local
 .env.production
 
+# FFmpeg（需自行下载）
+ffmpeg/
+
 # 输出文件
 output/
 shots/
