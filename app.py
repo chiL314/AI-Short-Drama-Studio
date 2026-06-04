@@ -19,7 +19,7 @@ from character_pool import CharacterPool, get_character_pool
 from scene_pool import ScenePool, get_scene_pool
 from prop_pool import PropPool, get_prop_pool
 from script_processor import generate_shots_from_script
-from video_generator import batch_generate_videos
+from video_generator import batch_generate_videos, generate_single_video
 
 
 # ==================== 页面配置 ====================
@@ -769,7 +769,18 @@ if current_step == 0:
                 index=["zh", "en", "zh_jp"].index(st.session_state.config['subtitle_lang']),
                 format_func=lambda x: {'zh': '中文', 'en': 'English', 'zh_jp': '中日双语'}[x]
             )
-    
+        else:
+            st.markdown("")  # 占位保持对齐
+
+        st.markdown("### 📦 输出模式")
+        st.session_state.config['export_mode'] = st.radio(
+            "选择输出方式",
+            options=["shots", "merged"],
+            format_func=lambda x: "分镜视频（单独输出每个分镜）" if x == "shots" else "完整剪辑（合并所有分镜为一个视频）",
+            horizontal=True,
+            index=0 if st.session_state.config.get('export_mode', 'shots') == 'shots' else 1
+        )
+
     st.divider()
     
     st.markdown("### 📝 提示词配置")
@@ -937,6 +948,26 @@ elif current_step == 2:
                         height=100,
                         key=f"prompt_{i}"
                     )
+                    # 旁白编辑
+                    narration = shot.get('narration', '')
+                    shot['narration'] = st.text_area(
+                        "旁白（可选）",
+                        value=narration,
+                        height=60,
+                        placeholder="输入旁白文本，Seedance/TTS将为其生成语音...",
+                        key=f"narration_{i}"
+                    )
+                    # 对话显示（只读）
+                    dialogue = shot.get('dialogue', [])
+                    if dialogue:
+                        dialogue_text = "\n".join([f"{d['role']}: {d['text']}" for d in dialogue])
+                        st.text_area(
+                            "对话",
+                            value=dialogue_text,
+                            height=60,
+                            key=f"dialogue_display_{i}",
+                            disabled=True
+                        )
                 
                 with col2:
                     st.markdown("**出场角色**")
@@ -1744,103 +1775,112 @@ elif current_step == 4:
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         if st.button("← 上一步", use_container_width=True):
+            st.session_state._generating = False
+            st.session_state._generation_running = False
             st.session_state.current_step = 3
             st.rerun()
     with col2:
-        if st.button("🎬 开始生成视频", type="primary", use_container_width=True):
-            try:
-                # 显示资源使用情况
-                st.markdown("### 📊 资源使用统计")
+        if st.button("🎬 开始生成视频", type="primary", use_container_width=True,
+                     disabled=st.session_state.get('_generating', False)):
+            st.session_state._generating = True
+            st.session_state._generation_running = False
+            st.rerun()
 
-                rm = st.session_state.resource_mapping
-                global_chars = rm.get('global_character_mapping', {})
-                global_descs = rm.get('global_character_descs', {})
-                has_global_chars = bool(global_chars or global_descs)
+    # 防重入：_generating=True 且 _generation_running=False（尚未执行）时才进入
+    if st.session_state.get('_generating') and not st.session_state.get('_generation_running'):
+        st.session_state._generation_running = True  # 立即上锁，后续rerun不会再次进入
 
-                total_shots = len(st.session_state.shots)
-                shots_with_resources = 0
-                shots_without_resources = 0
+        try:
+            # 显示资源使用情况
+            st.markdown("### 📊 资源使用统计")
 
-                for i, shot in enumerate(st.session_state.shots):
-                    shot_m = rm.get('shots', {}).get(i, {})
-                    has_shot_resources = bool(
-                        shot_m.get('scene') or shot_m.get('props')
-                    )
-                    if has_global_chars or has_shot_resources:
-                        shots_with_resources += 1
-                    else:
-                        shots_without_resources += 1
+            rm = st.session_state.resource_mapping
+            global_chars = rm.get('global_character_mapping', {})
+            global_descs = rm.get('global_character_descs', {})
+            has_global_chars = bool(global_chars or global_descs)
 
-                col_r1, col_r2 = st.columns(2)
-                with col_r1:
-                    st.success(f"✅ {shots_with_resources} 个分镜使用资源池资源")
-                with col_r2:
-                    st.info(f"🤖 {shots_without_resources} 个分镜由AI自动生成")
+            total_shots = len(st.session_state.shots)
+            shots_with_resources = 0
+            shots_without_resources = 0
 
-                st.divider()
-
-                # 进度UI
-                st.markdown("### 🎬 生成进度")
-                progress_bar = st.progress(0)
-                status_container = st.empty()
-                shot_progress_cols = st.columns(min(total_shots, 8))
-
-                # 断点续跑预检
-                output_dir = task_manager.get_task_dir(st.session_state.current_task_id)
-                skipped_count = 0
-                for shot in st.session_state.shots:
-                    video_path = f"{output_dir}/shot_{shot['shot_id']:03d}.mp4"
-                    if os.path.exists(video_path):
-                        skipped_count += 1
-                if skipped_count > 0:
-                    st.info(f"🔄 检测到 {skipped_count}/{total_shots} 个分镜已存在，将自动跳过（断点续跑）")
-
-                def on_progress(current: int, total: int, status: str, shot_id: int):
-                    pct = min(current / total, 1.0)
-                    progress_bar.progress(pct)
-                    status_map = {
-                        'generating': f"🎬 正在生成分镜 {shot_id}/{total}...",
-                        'done': f"✅ 分镜 {shot_id} 完成",
-                        'failed': f"❌ 分镜 {shot_id} 失败",
-                        'tts_mixing': "🎤 正在混音TTS...",
-                        'subtitles': "📝 正在烧录字幕...",
-                        'merging': "🎬 正在合并视频...",
-                    }
-                    status_container.info(status_map.get(status, status))
-
-                # 调用视频生成（传入进度回调）
-                batch_generate_videos(
-                    task_id=st.session_state.current_task_id,
-                    shots=st.session_state.shots,
-                    config=st.session_state.config,
-                    resource_mapping=st.session_state.resource_mapping,
-                    progress_callback=on_progress
+            for i, shot in enumerate(st.session_state.shots):
+                shot_m = rm.get('shots', {}).get(i, {})
+                has_shot_resources = bool(
+                    shot_m.get('scene') or shot_m.get('props')
                 )
-                task_manager.update_task(st.session_state.current_task_id, status="videos_generated")
-                progress_bar.progress(1.0)
-                status_container.success("✅ 视频生成完成！")
-                st.session_state.current_step = 5
-                time.sleep(1)
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ 视频生成失败：{str(e)}")
+                if has_global_chars or has_shot_resources:
+                    shots_with_resources += 1
+                else:
+                    shots_without_resources += 1
+
+            col_r1, col_r2 = st.columns(2)
+            with col_r1:
+                st.success(f"✅ {shots_with_resources} 个分镜使用资源池资源")
+            with col_r2:
+                st.info(f"🤖 {shots_without_resources} 个分镜由AI自动生成")
+
+            st.divider()
+
+            # 进度UI
+            st.markdown("### 🎬 生成进度")
+            progress_bar = st.progress(0)
+            status_container = st.empty()
+
+            # 断点续跑预检
+            output_dir = task_manager.get_task_dir(st.session_state.current_task_id)
+            skipped_count = 0
+            for shot in st.session_state.shots:
+                video_path = f"{output_dir}/shot_{shot['shot_id']:03d}.mp4"
+                if os.path.exists(video_path):
+                    skipped_count += 1
+            if skipped_count > 0:
+                st.info(f"🔄 检测到 {skipped_count}/{total_shots} 个分镜已存在，将自动跳过（断点续跑）")
+
+            def on_progress(current: int, total: int, status: str, shot_id: int):
+                pct = min(current / total, 1.0)
+                progress_bar.progress(pct)
+                status_map = {
+                    'submitting': f"📡 正在提交分镜 {shot_id}/{total}...",
+                    'done': f"✅ 分镜 {shot_id} 完成",
+                    'failed': f"❌ 分镜 {shot_id} 失败",
+                    'tts_mixing': "🎤 正在混音TTS...",
+                    'subtitles': "📝 正在烧录字幕...",
+                    'merging': "🎬 正在合并视频...",
+                }
+                status_container.info(status_map.get(status, status))
+
+            # 检测是否需要强制重做
+            force_regenerate = st.session_state.get('_force_regenerate', False)
+            st.session_state._force_regenerate = False
+
+            batch_generate_videos(
+                task_id=st.session_state.current_task_id,
+                shots=st.session_state.shots,
+                config=st.session_state.config,
+                resource_mapping=st.session_state.resource_mapping,
+                progress_callback=on_progress,
+                force=force_regenerate
+            )
+            task_manager.update_task(st.session_state.current_task_id, status="videos_generated")
+            progress_bar.progress(1.0)
+            status_container.success("✅ 视频生成完成！")
+
+            # 清除生成标志，跳到步骤5
+            st.session_state._generating = False
+            st.session_state._generation_running = False
+            st.session_state.current_step = 5
+            time.sleep(0.5)
+            st.rerun()
+        except Exception as e:
+            st.session_state._generating = False
+            st.session_state._generation_running = False
+            st.error(f"❌ 视频生成失败：{str(e)}")
 
 
 # ==================== 步骤5: 检查导出 ====================
 elif current_step == 5:
     st.markdown("## ✅ 检查与导出")
-    
-    # 输出模式选择
-    st.markdown("### 📦 输出模式")
-    st.session_state.config['export_mode'] = st.radio(
-        "选择输出方式",
-        options=["shots", "merged"],
-        format_func=lambda x: "分镜视频（单独输出每个分镜）" if x == "shots" else "完整剪辑（合并所有分镜为一个视频）",
-        horizontal=True
-    )
-    
-    st.divider()
-    
+
     # 显示生成的视频
     st.markdown("### 🎥 生成的视频")
 
@@ -1855,23 +1895,53 @@ elif current_step == 5:
             video_files = sorted([f for f in os.listdir(output_dir) if f.endswith('.mp4')])
 
             if video_files:
-                cols = st.columns(min(3, len(video_files)))
-                for i, video_file in enumerate(video_files):
-                    with cols[i % 3]:
-                        video_path = os.path.join(output_dir, video_file)
-                        st.video(video_path)
-                        st.markdown(f"**{video_file}**")
+                # 每行4个视频，统一大小
+                cols_per_row = 4
+                for row_start in range(0, len(video_files), cols_per_row):
+                    row_files = video_files[row_start:row_start + cols_per_row]
+                    cols = st.columns(cols_per_row)
+                    for j, video_file in enumerate(row_files):
+                        shot_id = int(video_file.replace('shot_', '').replace('.mp4', '').split('_')[0]) if video_file.startswith('shot_') else row_start + j + 1
+                        with cols[j]:
+                            video_path = os.path.join(output_dir, video_file)
+                            st.video(video_path)
+                            st.caption(f"📽️ 分镜 {shot_id}")
+                            if st.button(f"🔄 重做", key=f"redo_{video_file}", use_container_width=True):
+                                os.remove(video_path)
+                                for f in os.listdir(output_dir):
+                                    if f.startswith(f"shot_{shot_id:03d}") and (f.endswith('.wav') or f.endswith('.mp4')):
+                                        os.remove(os.path.join(output_dir, f))
+                                shot = st.session_state.shots[shot_id - 1]
+                                shot_resource_mapping = st.session_state.resource_mapping.get('shots', {}).get(shot_id - 1, {})
+                                full_shot_mapping = {"global_character_mapping": st.session_state.resource_mapping.get('global_character_mapping', {}),
+                                                     "global_character_descs": st.session_state.resource_mapping.get('global_character_descs', {}),
+                                                     "global_voice_mapping": st.session_state.resource_mapping.get('global_voice_mapping', {}),
+                                                     "shots": {shot_id - 1: shot_resource_mapping}}
+                                with st.spinner(f"🔄 正在重新生成分镜{shot_id}..."):
+                                    ok = generate_single_video(shot, st.session_state.current_task_id,
+                                                               st.session_state.config, full_shot_mapping, force=True)
+                                    if ok:
+                                        st.success(f"✅ 分镜{shot_id} 重新生成完成")
+                                    else:
+                                        st.error(f"❌ 分镜{shot_id} 重做失败")
+                                st.rerun()
             else:
                 st.info("暂无生成的视频")
         else:
             st.warning("输出目录不存在")
-    
+
     st.divider()
-    
-    # 导出按钮
+
+    # 批量重做：返回步骤4重新生成所有缺失的分镜
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         if st.button("← 上一步", use_container_width=True):
+            st.session_state.current_step = 4
+            st.rerun()
+    with col2:
+        if st.button("🎬 批量重做缺失分镜", use_container_width=True):
+            # 回到步骤4，force模式下会清理并重新生成
+            st.session_state._force_regenerate = True
             st.session_state.current_step = 4
             st.rerun()
     with col3:
