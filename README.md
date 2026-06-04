@@ -146,24 +146,30 @@
 ### 环境要求
 
 - **Python** 3.10+
-- **FFmpeg**（项目已内置 Windows 版本，其他平台需自行安装）
+- **FFmpeg**（音视频处理必需）
 
 ### 安装
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/YOUR_USERNAME/ai-short-drama.git
-cd ai-short-drama
+git clone https://github.com/chiL314/AI-Short-Drama-Studio-.git
+cd AI-Short-Drama-Studio-
 
 # 2. 创建虚拟环境
 python -m venv .venv
 source .venv/bin/activate  # Linux/Mac
 # .venv\Scripts\activate   # Windows
 
-# 3. 安装依赖
+# 3. 安装 Python 依赖
 pip install -r requirements.txt
 
-# 4. 配置 API 密钥
+# 4. 安装 FFmpeg
+# Windows: 下载 ffmpeg.exe 放到项目根目录的 ffmpeg/bin/ 下
+#          https://ffmpeg.org/download.html
+# Mac:    brew install ffmpeg
+# Linux:  sudo apt install ffmpeg
+
+# 5. 配置 API 密钥
 cp .env.example .env
 # 编辑 .env 填入你的 API 密钥（详见配置指南）
 ```
@@ -282,7 +288,6 @@ ai-short-drama/
 │   └── props.json
 ├── test/
 │   └── sample_shots.json    # 🧪  示例分镜数据
-├── ffmpeg/                  # 🎞️  FFmpeg 二进制（Windows）
 ├── .env.example             # 🔑  环境变量模板
 ├── requirements.txt         # 📦  Python 依赖
 ├── 启动界面.bat             # 🚀  Windows 一键启动脚本
