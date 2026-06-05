@@ -7,6 +7,7 @@ AI短剧自动生成系统 - 商业化Web界面
 import streamlit as st
 import json
 import os
+import shutil
 import time
 import requests
 from pathlib import Path
@@ -125,6 +126,52 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         border-radius: 10px 10px 0 0;
         padding: 10px 20px;
+    }
+    /* 资源卡片网格 */
+    .res-card {
+        background: white;
+        border-radius: 12px;
+        padding: 10px;
+        border: 2px solid #e8e8e8;
+        text-align: center;
+        transition: all 0.3s ease;
+        margin-bottom: 8px;
+    }
+    .res-card:hover {
+        border-color: #667eea;
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.2);
+        transform: translateY(-3px);
+    }
+    .res-card .res-name {
+        font-weight: 600;
+        font-size: 0.85em;
+        color: #333;
+        margin: 6px 0 2px 0;
+        word-break: break-all;
+    }
+    .res-card .res-tags {
+        font-size: 0.7em;
+        color: #aaa;
+        margin-bottom: 4px;
+    }
+    .res-card-empty {
+        background: #fafbff;
+        border: 2px dashed #d0d5f0;
+        border-radius: 12px;
+        text-align: center;
+        padding: 20px 10px;
+        min-height: 160px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 8px;
+    }
+    .res-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -376,7 +423,7 @@ if st.session_state.show_api_config:
                     help="例如：qwen3.5-flash"
                 )
 
-            ds_submitted = st.form_submit_button("💾 保存分镜模型配置", type="primary", use_container_width=True)
+            ds_submitted = st.form_submit_button("💾 保存分镜模型配置", type="primary", width='stretch')
 
             if ds_submitted:
                 if ds_api_key:
@@ -422,7 +469,7 @@ if st.session_state.show_api_config:
                     help="例如：doubao-seedance-1-0-pro-250528"
                 )
 
-            sd_submitted = st.form_submit_button("💾 保存视频模型配置", type="primary", use_container_width=True)
+            sd_submitted = st.form_submit_button("💾 保存视频模型配置", type="primary", width='stretch')
 
             if sd_submitted:
                 if sd_api_key:
@@ -594,7 +641,7 @@ if st.session_state.show_api_config:
                                     if st.button("🔊 试听", key=f"preview_{role}"):
                                         st.info("试听功能需要接入真实TTS API")
             
-            tts_submitted = st.form_submit_button("💾 保存TTS配置", type="primary", use_container_width=True)
+            tts_submitted = st.form_submit_button("💾 保存TTS配置", type="primary", width='stretch')
             
             if tts_submitted:
                 # 保存TTS配置
@@ -634,7 +681,7 @@ if st.session_state.show_api_config:
     st.divider()
     col_center, = st.columns([1])
     with col_center:
-        if st.button("❌ 关闭配置", use_container_width=True, type="secondary"):
+        if st.button("❌ 关闭配置", width='stretch', type="secondary"):
             st.session_state.show_api_config = False
             st.rerun()
     
@@ -820,7 +867,7 @@ if current_step == 0:
     
     col5, col6 = st.columns([1, 1])
     with col5:
-        if st.button("下一步 →", type="primary", use_container_width=True):
+        if st.button("下一步 →", type="primary", width='stretch'):
             st.session_state.current_step = 1
             st.rerun()
 
@@ -853,11 +900,11 @@ elif current_step == 1:
     
     col5, col6, col7 = st.columns([1, 1, 1])
     with col5:
-        if st.button("← 上一步", use_container_width=True):
+        if st.button("← 上一步", width='stretch'):
             st.session_state.current_step = 0
             st.rerun()
     with col6:
-        if st.button("🧪 加载示例分镜", use_container_width=True, help="跳过LLM调用，直接加载示例分镜数据测试完整流程"):
+        if st.button("🧪 加载示例分镜", width='stretch', help="跳过LLM调用，直接加载示例分镜数据测试完整流程"):
             sample_path = Path("./test/sample_shots.json")
             if sample_path.exists():
                 with open(sample_path, 'r', encoding='utf-8') as f:
@@ -876,7 +923,7 @@ elif current_step == 1:
             else:
                 st.error("示例分镜文件不存在: test/sample_shots.json")
     with col7:
-        if st.button("生成分镜 →", type="primary", use_container_width=True):
+        if st.button("生成分镜 →", type="primary", width='stretch'):
             if not st.session_state.script_content.strip():
                 st.error("请先输入剧本内容！")
             else:
@@ -979,11 +1026,11 @@ elif current_step == 2:
         
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-            if st.button("← 上一步", use_container_width=True):
+            if st.button("← 上一步", width='stretch'):
                 st.session_state.current_step = 1
                 st.rerun()
         with col3:
-            if st.button("下一步：关联资源 →", type="primary", use_container_width=True):
+            if st.button("下一步：关联资源 →", type="primary", width='stretch'):
                 st.session_state.current_step = 3
                 st.rerun()
 
@@ -1011,127 +1058,177 @@ elif current_step == 3:
         
         st.divider()
     
-    # 显示资源池状态（有资源时显示统计）
-    if all_characters or all_scenes or all_props:
-        # 有资源时显示统计
-        st.markdown("### 📊 资源池状态")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("🎭 角色数量", len(all_characters))
-        with col2:
-            st.metric("🎬 场景数量", len(all_scenes))
-        with col3:
-            st.metric("🎒 物品数量", len(all_props))
-        
-        st.divider()
-    
-    # 添加资源按钮（无论是否为空都显示）
-    col_add1, col_add2, col_add3 = st.columns(3)
-    with col_add1:
-        if st.button("➕ 添加角色", use_container_width=True, type="primary"):
-            st.session_state.show_add_character = True
-    with col_add2:
-        if st.button("➕ 添加场景", use_container_width=True, type="primary"):
-            st.session_state.show_add_scene = True
-    with col_add3:
-        if st.button("➕ 添加物品", use_container_width=True, type="primary"):
-            st.session_state.show_add_prop = True
-    
-    st.divider()
-    
-    # 显示空资源池提示（仅在没有表单显示时）
-    if not all_characters and not all_scenes and not all_props:
-        if not st.session_state.get('show_add_character') and not st.session_state.get('show_add_scene') and not st.session_state.get('show_add_prop'):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown("<div style='background:#fff3cd;height:150px;display:flex;align-items:center;justify-content:center;border-radius:8px;text-align:center;padding:20px;'><span style='color:#856404;'>💡 暂无角色<br/>请先添加角色</span></div>", unsafe_allow_html=True)
-            with col2:
-                st.markdown("<div style='background:#fff3cd;height:150px;display:flex;align-items:center;justify-content:center;border-radius:8px;text-align:center;padding:20px;'><span style='color:#856404;'>💡 暂无场景<br/>请先添加场景</span></div>", unsafe_allow_html=True)
-            with col3:
-                st.markdown("<div style='background:#fff3cd;height:150px;display:flex;align-items:center;justify-content:center;border-radius:8px;text-align:center;padding:20px;'><span style='color:#856404;'>💡 暂无物品<br/>请先添加物品</span></div>", unsafe_allow_html=True)
-    
-    # 显示添加表单 - 角色（无论是否为空都显示）
-    if st.session_state.get('show_add_character'):
-        st.markdown("### 🎭 添加角色")
-        with st.form("add_char_form"):
+    # ========== 资源池管理（4列网格布局） ==========
+
+    COLS_PER_ROW = 4
+    MAX_ROWS = 3
+    MAX_VISIBLE = COLS_PER_ROW * MAX_ROWS  # 12
+
+    def _copy_to_pool_images(src_path, name):
+        """将图片复制到 resource_pool/images/ 目录"""
+        images_dir = os.path.join(str(config.RESOURCE_POOL_DIR), "images")
+        os.makedirs(images_dir, exist_ok=True)
+        ext = os.path.splitext(src_path)[1] or ".png"
+        dest = os.path.join(images_dir, f"{name}{ext}")
+        if os.path.abspath(src_path) != os.path.abspath(dest):
+            shutil.copy2(src_path, dest)
+        return dest
+
+    def _render_resource_card(item, pool, res_type):
+        """渲染单个资源卡片"""
+        img_path = item.get('image_path', '')
+        # 图片
+        if img_path and os.path.exists(img_path):
+            st.image(img_path, width='stretch')
+        else:
+            icon_map = {"char": "🎭", "scene": "🎬", "prop": "🎒"}
+            icon = icon_map.get(res_type, "📷")
+            st.markdown(
+                f"<div style='background:#f5f5f5;aspect-ratio:1;display:flex;"
+                f"align-items:center;justify-content:center;border-radius:8px;"
+                f"min-height:100px;'><span style='font-size:2.5em;'>{icon}</span></div>",
+                unsafe_allow_html=True
+            )
+        # 名称
+        st.markdown(
+            f"<div style='text-align:center;font-weight:600;font-size:0.85em;"
+            f"margin:6px 0 2px 0;word-break:break-all;'>{item['name']}</div>",
+            unsafe_allow_html=True
+        )
+        # 标签（仅角色）
+        tags = item.get('tags', [])
+        if tags:
+            st.markdown(
+                f"<div style='text-align:center;font-size:0.7em;color:#999;'>"
+                f"{', '.join(tags[:3])}</div>",
+                unsafe_allow_html=True
+            )
+        # 操作按钮
+        c1, c2 = st.columns(2)
+        with c1:
+            if img_path and os.path.exists(img_path):
+                if st.button("🔍", key=f"prev_{res_type}_{item['id']}", width='stretch'):
+                    st.session_state.show_image_dialog = img_path
+                    st.rerun()
+        with c2:
+            if st.button("🗑️", key=f"del_{res_type}_{item['id']}", width='stretch'):
+                pool.delete(item['id'])
+                st.rerun()
+
+    def _render_resource_grid(items, pool, res_type):
+        """渲染资源网格：4列 × 最多3行，超出折叠"""
+        if not items:
+            return
+        visible = items[:MAX_VISIBLE]
+        hidden = items[MAX_VISIBLE:]
+        for row_start in range(0, len(visible), COLS_PER_ROW):
+            row_items = visible[row_start:row_start + COLS_PER_ROW]
+            cols = st.columns(COLS_PER_ROW)
+            for col_idx, item in enumerate(row_items):
+                with cols[col_idx]:
+                    with st.container(border=True):
+                        _render_resource_card(item, pool, res_type)
+        if hidden:
+            with st.expander(f"📦 其他（{len(hidden)}个）"):
+                for row_start in range(0, len(hidden), COLS_PER_ROW):
+                    row_items = hidden[row_start:row_start + COLS_PER_ROW]
+                    cols = st.columns(COLS_PER_ROW)
+                    for col_idx, item in enumerate(row_items):
+                        with cols[col_idx]:
+                            with st.container(border=True):
+                                _render_resource_card(item, pool, res_type)
+
+    def _render_resource_section(icon, title, items, pool, res_type, show_key, form_key):
+        """渲染一个完整的资源区域：标题栏 + 网格 + 添加按钮 + 添加表单"""
+        # 标题栏
+        col_h1, col_h2 = st.columns([3, 1])
+        with col_h1:
+            st.markdown(f"#### {icon} {title}（{len(items)}个）")
+        with col_h2:
+            if st.button(f"➕ 添加", width='stretch', key=f"add_btn_{res_type}"):
+                st.session_state[show_key] = True
+                st.rerun()
+
+        # 资源网格
+        _render_resource_grid(items, pool, res_type)
+
+        # 空状态
+        if not items:
+            st.info(f"💡 暂无{title.replace('池', '')}，点击上方「➕ 添加」按钮添加")
+
+        # 添加表单
+        if st.session_state.get(show_key):
+            st.divider()
+            st.markdown(f"##### {icon} 添加{title.replace('池', '')}")
+            _render_add_form(res_type, pool, show_key, form_key)
+
+    def _render_add_form(res_type, pool, show_key, form_key):
+        """渲染添加资源表单"""
+        if res_type == "char":
+            _render_add_character_form(pool, show_key, form_key)
+        elif res_type == "scene":
+            _render_add_scene_form(pool, show_key, form_key)
+        elif res_type == "prop":
+            _render_add_prop_form(pool, show_key, form_key)
+
+    def _render_add_character_form(pool, show_key, form_key):
+        """角色添加表单"""
+        # 文件上传（表单外，响应式）
+        uploaded_file = st.file_uploader(
+            "📁 上传角色图片（点击或拖拽）",
+            type=['jpg', 'jpeg', 'png'],
+            key="char_uploader",
+            help="选择角色的参考图片"
+        )
+        uploaded_path = ""
+        if uploaded_file is not None:
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, uploaded_file.name)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.image(temp_path, width=150)
+            st.caption(f"✅ 已选择: {uploaded_file.name}")
+            uploaded_path = temp_path
+
+        with st.form(form_key):
             col1, col2 = st.columns(2)
             with col1:
                 char_name = st.text_input("角色名称 *", placeholder="例如：小垚")
-                
-                # 外观描述模板
-                st.markdown("**外观描述**")
                 appearance_template = st.selectbox(
-                    "选择模板（可选）",
-                    [
-                        "自定义",
-                        "男性，25-30岁，短发，身材高大，五官立体",
-                        "女性，20-25岁，长发，身材苗条，气质优雅",
-                        "男性，30-40岁，成熟稳重，胡须，西装革履",
-                        "女性，25-35岁，职业装，干练短发",
-                        "男性，18-22岁，阳光帅气，运动装"
-                    ],
-                    index=0,
-                    help="选择预设模板或自定义"
+                    "外观模板（可选）",
+                    ["自定义", "男性，25-30岁，短发，身材高大，五官立体",
+                     "女性，20-25岁，长发，身材苗条，气质优雅",
+                     "男性，30-40岁，成熟稳重，胡须，西装革履",
+                     "女性，25-35岁，职业装，干练短发",
+                     "男性，18-22岁，阳光帅气，运动装"],
+                    index=0, help="选择预设模板或自定义"
                 )
-                
                 if appearance_template != "自定义":
-                    char_appearance = st.text_area("外观描述", value=appearance_template)
+                    char_appearance = st.text_area("外观描述", value=appearance_template, label_visibility="collapsed")
                 else:
-                    char_appearance = st.text_area("外观描述", placeholder="例如：男性，25岁，短发，身材高大")
-            
+                    char_appearance = st.text_area("外观描述", placeholder="例如：男性，25岁，短发，身材高大", label_visibility="collapsed")
             with col2:
-                char_clothes = st.text_input("服装描述", placeholder="例如：休闲装、西装、运动装")
+                char_clothes = st.text_input("服装描述", placeholder="例如：休闲装、西装")
                 char_character = st.text_input("性格描述", placeholder="例如：活泼开朗、沉稳冷静")
-            
-            # 图片选择器
-            st.markdown("**角色图片**")
-            col_img1, col_img2 = st.columns([3, 1])
-            with col_img1:
-                char_image = st.text_input("图片路径 *", placeholder="点击右侧按钮选择文件")
-            with col_img2:
-                st.markdown("&nbsp;")  # 占位
-                if st.form_submit_button("📁 选择文件", use_container_width=True):
-                    st.session_state.show_file_picker_char = True
-            
-            # 文件选择器
-            if st.session_state.get('show_file_picker_char', False):
-                uploaded_file = st.file_uploader(
-                    "选择角色图片",
-                    type=['jpg', 'jpeg', 'png'],
-                    help="选择图片后，路径会自动填入上方"
-                )
-                if uploaded_file is not None:
-                    import tempfile
-                    temp_dir = tempfile.gettempdir()
-                    temp_path = os.path.join(temp_dir, uploaded_file.name)
-                    with open(temp_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    st.session_state.char_image_temp = temp_path
-                    st.success(f"✅ 已选择: {uploaded_file.name}")
-                    st.code(f"路径: {temp_path}")
-                    if st.form_submit_button("✅ 确认使用此图片", key="char_confirm_btn"):
-                        st.session_state.show_file_picker_char = False
-            
+            char_image = st.text_input("图片路径 *", value=uploaded_path, placeholder="上传图片或手动输入路径")
             char_tags = st.text_input("标签（逗号分隔）", placeholder="例如：主角,现代")
-            
+
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.form_submit_button("✅ 添加", type="primary"):
-                    image_path = st.session_state.get('char_image_temp') or char_image
+                    image_path = uploaded_path or char_image
                     if char_name and image_path:
                         try:
-                            char_pool.add(
-                                name=char_name,
-                                appearance=char_appearance,
-                                clothes=char_clothes,
-                                character=char_character,
-                                image_path=image_path,
+                            dest_path = _copy_to_pool_images(image_path, char_name)
+                            pool.add(
+                                name=char_name, appearance=char_appearance,
+                                clothes=char_clothes, character=char_character,
+                                image_path=dest_path,
                                 tags=[t.strip() for t in char_tags.split(",") if t.strip()]
                             )
-                            st.session_state.pop('char_image_temp', None)
                             st.success(f"✅ 角色 '{char_name}' 添加成功！")
-                            st.session_state.show_add_character = False
-                            st.session_state.show_file_picker_char = False
+                            st.session_state[show_key] = False
                             st.rerun()
                         except ValueError as e:
                             st.error(f"❌ {e}")
@@ -1139,84 +1236,56 @@ elif current_step == 3:
                         st.error("❌ 请填写角色名称和选择图片")
             with col_btn2:
                 if st.form_submit_button("❌ 取消"):
-                    st.session_state.show_add_character = False
-                    st.session_state.show_file_picker_char = False
+                    st.session_state[show_key] = False
                     st.rerun()
-        st.divider()
-        
-    # 显示添加表单 - 场景（无论是否为空都显示）
-    if st.session_state.get('show_add_scene'):
-        st.markdown("### 🎬 添加场景")
-        with st.form("add_scene_form"):
+
+    def _render_add_scene_form(pool, show_key, form_key):
+        """场景添加表单"""
+        uploaded_file = st.file_uploader(
+            "📁 上传场景图片（点击或拖拽）",
+            type=['jpg', 'jpeg', 'png'],
+            key="scene_uploader",
+            help="选择场景的参考图片"
+        )
+        uploaded_path = ""
+        if uploaded_file is not None:
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, uploaded_file.name)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.image(temp_path, width=200)
+            st.caption(f"✅ 已选择: {uploaded_file.name}")
+            uploaded_path = temp_path
+
+        with st.form(form_key):
             scene_name = st.text_input("场景名称 *", placeholder="例如：海边")
-            
-            # 场景描述模板
-            st.markdown("**场景描述**")
             scene_template = st.selectbox(
-                "选择模板（可选）",
-                [
-                    "自定义",
-                    "阳光明媚的海滩，蓝天白云，海浪拍打沙滩",
-                    "繁华的城市街道，夜晚霓虹灯，车水马龙",
-                    "安静的咖啡馆，温馨舒适，轻音乐",
-                    "现代化的办公室，落地窗，城市景观",
-                    "豪华酒店大堂，金碧辉煌，水晶吊灯",
-                    "公园花园，春暖花开，鸟语花香"
-                ],
-                index=0,
-                help="选择预设模板或自定义"
+                "场景模板（可选）",
+                ["自定义", "阳光明媚的海滩，蓝天白云，海浪拍打沙滩",
+                 "繁华的城市街道，夜晚霓虹灯，车水马龙",
+                 "安静的咖啡馆，温馨舒适，轻音乐",
+                 "现代化的办公室，落地窗，城市景观",
+                 "豪华酒店大堂，金碧辉煌，水晶吊灯",
+                 "公园花园，春暖花开，鸟语花香"],
+                index=0, help="选择预设模板或自定义"
             )
-            
             if scene_template != "自定义":
-                scene_desc = st.text_area("场景描述", value=scene_template)
+                scene_desc = st.text_area("场景描述", value=scene_template, label_visibility="collapsed")
             else:
-                scene_desc = st.text_area("场景描述", placeholder="例如：阳光明媚的海滩")
-            
-            # 图片选择器
-            st.markdown("**场景图片**")
-            col_img1, col_img2 = st.columns([3, 1])
-            with col_img1:
-                scene_image = st.text_input("图片路径 *", placeholder="点击右侧按钮选择文件")
-            with col_img2:
-                st.markdown("&nbsp;")  # 占位
-                if st.form_submit_button("📁 选择文件", use_container_width=True, key="scene_pick_btn"):
-                    st.session_state.show_file_picker_scene = True
-            
-            # 文件选择器
-            if st.session_state.get('show_file_picker_scene', False):
-                uploaded_file = st.file_uploader(
-                    "选择场景图片",
-                    type=['jpg', 'jpeg', 'png'],
-                    help="选择图片后，路径会自动填入上方",
-                    key="scene_uploader"
-                )
-                if uploaded_file is not None:
-                    import tempfile
-                    temp_dir = tempfile.gettempdir()
-                    temp_path = os.path.join(temp_dir, uploaded_file.name)
-                    with open(temp_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    st.session_state.scene_image_temp = temp_path
-                    st.success(f"✅ 已选择: {uploaded_file.name}")
-                    st.code(f"路径: {temp_path}")
-                    if st.form_submit_button("✅ 确认使用此图片", key="scene_confirm_btn"):
-                        st.session_state.show_file_picker_scene = False
-            
+                scene_desc = st.text_area("场景描述", placeholder="例如：阳光明媚的海滩", label_visibility="collapsed")
+            scene_image = st.text_input("图片路径 *", value=uploaded_path, placeholder="上传图片或手动输入路径")
+
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.form_submit_button("✅ 添加", type="primary"):
-                    image_path = st.session_state.get('scene_image_temp') or scene_image
+                    image_path = uploaded_path or scene_image
                     if scene_name and image_path:
                         try:
-                            scene_pool.add(
-                                name=scene_name,
-                                description=scene_desc,
-                                image_path=image_path
-                            )
-                            st.session_state.pop('scene_image_temp', None)
+                            dest_path = _copy_to_pool_images(image_path, scene_name)
+                            pool.add(name=scene_name, description=scene_desc, image_path=dest_path)
                             st.success(f"✅ 场景 '{scene_name}' 添加成功！")
-                            st.session_state.show_add_scene = False
-                            st.session_state.show_file_picker_scene = False
+                            st.session_state[show_key] = False
                             st.rerun()
                         except ValueError as e:
                             st.error(f"❌ {e}")
@@ -1224,84 +1293,56 @@ elif current_step == 3:
                         st.error("❌ 请填写场景名称和选择图片")
             with col_btn2:
                 if st.form_submit_button("❌ 取消"):
-                    st.session_state.show_add_scene = False
-                    st.session_state.show_file_picker_scene = False
+                    st.session_state[show_key] = False
                     st.rerun()
-        st.divider()
-        
-    # 显示添加表单 - 物品（无论是否为空都显示）
-    if st.session_state.get('show_add_prop'):
-        st.markdown("### 🎒 添加物品")
-        with st.form("add_prop_form"):
+
+    def _render_add_prop_form(pool, show_key, form_key):
+        """物品添加表单"""
+        uploaded_file = st.file_uploader(
+            "📁 上传物品图片（点击或拖拽）",
+            type=['jpg', 'jpeg', 'png'],
+            key="prop_uploader",
+            help="选择物品的参考图片"
+        )
+        uploaded_path = ""
+        if uploaded_file is not None:
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, uploaded_file.name)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.image(temp_path, width=150)
+            st.caption(f"✅ 已选择: {uploaded_file.name}")
+            uploaded_path = temp_path
+
+        with st.form(form_key):
             prop_name = st.text_input("物品名称 *", placeholder="例如：手机")
-            
-            # 物品描述模板
-            st.markdown("**物品描述**")
             prop_template = st.selectbox(
-                "选择模板（可选）",
-                [
-                    "自定义",
-                    "智能手机，黑色，最新款，高清屏幕",
-                    "豪华轿车，黑色，流线型设计",
-                    "笔记本电脑，银色，轻薄便携",
-                    "文件袋，牛皮纸，机密文件",
-                    "手表，名牌，金属表带",
-                    "包包，时尚，真皮材质"
-                ],
-                index=0,
-                help="选择预设模板或自定义"
+                "物品模板（可选）",
+                ["自定义", "智能手机，黑色，最新款，高清屏幕",
+                 "豪华轿车，黑色，流线型设计",
+                 "笔记本电脑，银色，轻薄便携",
+                 "文件袋，牛皮纸，机密文件",
+                 "手表，名牌，金属表带",
+                 "包包，时尚，真皮材质"],
+                index=0, help="选择预设模板或自定义"
             )
-            
             if prop_template != "自定义":
-                prop_desc = st.text_area("物品描述", value=prop_template)
+                prop_desc = st.text_area("物品描述", value=prop_template, label_visibility="collapsed")
             else:
-                prop_desc = st.text_area("物品描述", placeholder="例如：iPhone 15 Pro")
-            
-            # 图片选择器
-            st.markdown("**物品图片**")
-            col_img1, col_img2 = st.columns([3, 1])
-            with col_img1:
-                prop_image = st.text_input("图片路径 *", placeholder="点击右侧按钮选择文件")
-            with col_img2:
-                st.markdown("&nbsp;")  # 占位
-                if st.form_submit_button("📁 选择文件", use_container_width=True, key="prop_pick_btn"):
-                    st.session_state.show_file_picker_prop = True
-            
-            # 文件选择器
-            if st.session_state.get('show_file_picker_prop', False):
-                uploaded_file = st.file_uploader(
-                    "选择物品图片",
-                    type=['jpg', 'jpeg', 'png'],
-                    help="选择图片后，路径会自动填入上方",
-                    key="prop_uploader"
-                )
-                if uploaded_file is not None:
-                    import tempfile
-                    temp_dir = tempfile.gettempdir()
-                    temp_path = os.path.join(temp_dir, uploaded_file.name)
-                    with open(temp_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    st.session_state.prop_image_temp = temp_path
-                    st.success(f"✅ 已选择: {uploaded_file.name}")
-                    st.code(f"路径: {temp_path}")
-                    if st.form_submit_button("✅ 确认使用此图片", key="prop_confirm_btn"):
-                        st.session_state.show_file_picker_prop = False
-            
+                prop_desc = st.text_area("物品描述", placeholder="例如：iPhone 15 Pro", label_visibility="collapsed")
+            prop_image = st.text_input("图片路径 *", value=uploaded_path, placeholder="上传图片或手动输入路径")
+
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.form_submit_button("✅ 添加", type="primary"):
-                    image_path = st.session_state.get('prop_image_temp') or prop_image
+                    image_path = uploaded_path or prop_image
                     if prop_name and image_path:
                         try:
-                            prop_pool.add(
-                                name=prop_name,
-                                description=prop_desc,
-                                image_path=image_path
-                            )
-                            st.session_state.pop('prop_image_temp', None)
+                            dest_path = _copy_to_pool_images(image_path, prop_name)
+                            pool.add(name=prop_name, description=prop_desc, image_path=dest_path)
                             st.success(f"✅ 物品 '{prop_name}' 添加成功！")
-                            st.session_state.show_add_prop = False
-                            st.session_state.show_file_picker_prop = False
+                            st.session_state[show_key] = False
                             st.rerun()
                         except ValueError as e:
                             st.error(f"❌ {e}")
@@ -1309,171 +1350,44 @@ elif current_step == 3:
                         st.error("❌ 请填写物品名称和选择图片")
             with col_btn2:
                 if st.form_submit_button("❌ 取消"):
-                    st.session_state.show_add_prop = False
-                    st.session_state.show_file_picker_prop = False
+                    st.session_state[show_key] = False
                     st.rerun()
-        st.divider()
-        
-    # 显示资源池 - 三个框展示，带点击预览（无论是否为空都显示）
-    st.markdown("### 📦 资源池预览")
-    st.info("💡 提示：点击图片可以放大查看")
-                
-    # 角色池
-    st.markdown("#### 🎭 角色池")
-    if all_characters:
-        # 最多显示10个，超过显示"其他"
-        display_chars = all_characters[:10]
-        has_more = len(all_characters) > 10
-            
-        # 每行5个，最多2行
-        cols = st.columns(min(5, len(display_chars)))
-        for i, char in enumerate(display_chars):
-            with cols[i % 5]:
-                image_path = char.get('image_path', '')
-                if image_path and os.path.exists(image_path):
-                    # 点击图片放大查看
-                    if st.button("🔍", key=f"preview_char_{char['id']}", use_container_width=True, help="点击放大"):
-                        st.session_state.show_image_dialog = image_path
-                    st.image(image_path, width=60)
-                else:
-                    st.markdown("<div style='background:#f0f0f0;height:50px;display:flex;align-items:center;justify-content:center;border-radius:8px;'><span style='color:#999;'>📷</span></div>", unsafe_allow_html=True)
-                    
-                # 名称在图片正下方，小字
-                st.caption(char['name'])
-                    
-                # 删除按钮
-                if st.button(f"🗑️", key=f"del_char_{char['id']}"):
-                    if char_pool.delete(char['id']):
-                        st.rerun()
-            
-        # 超过10个显示"其他"
-        if has_more:
-            with st.expander(f"📦 其他角色（{len(all_characters) - 10}个）"):
-                for char in all_characters[10:]:
-                    col_img, col_name, col_del = st.columns([2, 3, 1])
-                    with col_img:
-                        image_path = char.get('image_path', '')
-                        if image_path and os.path.exists(image_path):
-                            if st.button("🔍", key=f"preview_char_more_{char['id']}", help="点击放大"):
-                                st.session_state.show_image_dialog = image_path
-                            st.image(image_path, width=50)
-                        else:
-                            st.markdown("📷")
-                    with col_name:
-                        st.markdown(f"**{char['name']}**")
-                    with col_del:
-                        if st.button(f"🗑️", key=f"del_char_more_{char['id']}"):
-                            if char_pool.delete(char['id']):
-                                st.rerun()
-    else:
-        st.markdown("<div style='background:#fff3cd;height:60px;display:flex;align-items:center;justify-content:center;border-radius:8px;text-align:center;'><span style='color:#856404;'>💡 暂无角色</span></div>", unsafe_allow_html=True)
-            
+
+    # ---- 角色池 ----
+    _render_resource_section(
+        "🎭", "角色池", all_characters, char_pool, "char",
+        "show_add_character", "add_char_form"
+    )
+
     st.divider()
-            
-    # 场景池
-    st.markdown("#### 🎬 场景池")
-    if all_scenes:
-        display_scenes = all_scenes[:10]
-        has_more = len(all_scenes) > 10
-        
-        cols = st.columns(min(5, len(display_scenes)))
-        for i, scene in enumerate(display_scenes):
-            with cols[i % 5]:
-                image_path = scene.get('image_path', '')
-                if image_path and os.path.exists(image_path):
-                    if st.button("🔍", key=f"preview_scene_{scene['id']}", use_container_width=True, help="点击放大"):
-                        st.session_state.show_image_dialog = image_path
-                    st.image(image_path, width=60)
-                else:
-                    st.markdown("<div style='background:#f0f0f0;height:50px;display:flex;align-items:center;justify-content:center;border-radius:8px;'><span style='color:#999;'>📷</span></div>", unsafe_allow_html=True)
-                
-                st.caption(scene['name'])
-                
-                if st.button(f"🗑️", key=f"del_scene_{scene['id']}"):
-                    if scene_pool.delete(scene['id']):
-                        st.rerun()
-        
-        if has_more:
-            with st.expander(f"📦 其他场景（{len(all_scenes) - 10}个）"):
-                for scene in all_scenes[10:]:
-                    col_img, col_name, col_del = st.columns([2, 3, 1])
-                    with col_img:
-                        image_path = scene.get('image_path', '')
-                        if image_path and os.path.exists(image_path):
-                            if st.button("🔍", key=f"preview_scene_more_{scene['id']}", help="点击放大"):
-                                st.session_state.show_image_dialog = image_path
-                            st.image(image_path, width=50)
-                        else:
-                            st.markdown("📷")
-                    with col_name:
-                        st.markdown(f"**{scene['name']}**")
-                    with col_del:
-                        if st.button(f"🗑️", key=f"del_scene_more_{scene['id']}"):
-                            if scene_pool.delete(scene['id']):
-                                st.rerun()
-    else:
-        st.markdown("<div style='background:#fff3cd;height:60px;display:flex;align-items:center;justify-content:center;border-radius:8px;text-align:center;'><span style='color:#856404;'>💡 暂无场景</span></div>", unsafe_allow_html=True)
-            
+
+    # ---- 场景池 ----
+    _render_resource_section(
+        "🎬", "场景池", all_scenes, scene_pool, "scene",
+        "show_add_scene", "add_scene_form"
+    )
+
     st.divider()
-            
-    # 物品池
-    st.markdown("#### 🎒 物品池")
-    if all_props:
-        display_props = all_props[:10]
-        has_more = len(all_props) > 10
-        
-        cols = st.columns(min(5, len(display_props)))
-        for i, prop in enumerate(display_props):
-            with cols[i % 5]:
-                image_path = prop.get('image_path', '')
-                if image_path and os.path.exists(image_path):
-                    if st.button("🔍", key=f"preview_prop_{prop['id']}", use_container_width=True, help="点击放大"):
-                        st.session_state.show_image_dialog = image_path
-                    st.image(image_path, width=60)
-                else:
-                    st.markdown("<div style='background:#f0f0f0;height:50px;display:flex;align-items:center;justify-content:center;border-radius:8px;'><span style='color:#999;'>📷</span></div>", unsafe_allow_html=True)
-                
-                st.caption(prop['name'])
-                
-                if st.button(f"🗑️", key=f"del_prop_{prop['id']}"):
-                    if prop_pool.delete(prop['id']):
-                        st.rerun()
-        
-        if has_more:
-            with st.expander(f"📦 其他物品（{len(all_props) - 10}个）"):
-                for prop in all_props[10:]:
-                    col_img, col_name, col_del = st.columns([2, 3, 1])
-                    with col_img:
-                        image_path = prop.get('image_path', '')
-                        if image_path and os.path.exists(image_path):
-                            if st.button("🔍", key=f"preview_prop_more_{prop['id']}", help="点击放大"):
-                                st.session_state.show_image_dialog = image_path
-                            st.image(image_path, width=50)
-                        else:
-                            st.markdown("📷")
-                    with col_name:
-                        st.markdown(f"**{prop['name']}**")
-                    with col_del:
-                        if st.button(f"🗑️", key=f"del_prop_more_{prop['id']}"):
-                            if prop_pool.delete(prop['id']):
-                                st.rerun()
-    else:
-        st.markdown("<div style='background:#fff3cd;height:60px;display:flex;align-items:center;justify-content:center;border-radius:8px;text-align:center;'><span style='color:#856404;'>💡 暂无物品</span></div>", unsafe_allow_html=True)
-    
-    # 图片放大查看（使用dialog）
+
+    # ---- 物品池 ----
+    _render_resource_section(
+        "🎒", "物品池", all_props, prop_pool, "prop",
+        "show_add_prop", "add_prop_form"
+    )
+
+    # 图片放大预览
     if st.session_state.get('show_image_dialog'):
         image_path = st.session_state.show_image_dialog
         if os.path.exists(image_path):
-            st.markdown("---")
+            st.divider()
             st.markdown("### 🔍 图片预览")
-            st.image(image_path, use_container_width=True)
-            if st.button("❌ 关闭", use_container_width=True):
+            st.image(image_path, width='stretch')
+            if st.button("❌ 关闭预览", width='stretch'):
                 st.session_state.show_image_dialog = None
                 st.rerun()
         else:
             st.session_state.show_image_dialog = None
 
-    
     st.divider()
 
     # ========== 收集所有分镜中的唯一角色名 ==========
@@ -1663,39 +1577,29 @@ elif current_step == 3:
                 # 物品手动描述（未选择但匹配到的物品）
                 if all_props and matched_props:
                     unselected = [p for p in matched_props if p['name'] not in selected_props]
-                    for prop in unselected:
-                        prop_desc = st.text_input(
-                            f"'{prop['name']}' 描述",
-                            value=st.session_state.get(f"prop_desc_{i}_{prop['name']}", ''),
-                            placeholder=f"描述 {prop['name']} 的外观...",
-                            key=f"prop_desc_{i}_{prop['name']}"
-                        )
-                        if f"shot_{i}_prop_descs" not in st.session_state:
-                            st.session_state[f"shot_{i}_prop_descs"] = {}
-                        st.session_state[f"shot_{i}_prop_descs"][prop['name']] = prop_desc
-
-    # 图片放大查看
-    if st.session_state.get('show_image_dialog'):
-        image_path = st.session_state.show_image_dialog
-        if os.path.exists(image_path):
-            st.markdown("---")
-            st.markdown("### 🔍 图片预览")
-            st.image(image_path, use_container_width=True)
-            if st.button("❌ 关闭", use_container_width=True):
-                st.session_state.show_image_dialog = None
-                st.rerun()
-        else:
-            st.session_state.show_image_dialog = None
+                    if unselected:
+                        for prop in unselected:
+                            prop_desc = st.text_input(
+                                f"'{prop['name']}' 描述",
+                                value=st.session_state.get(f"prop_desc_{i}_{prop['name']}", ''),
+                                placeholder=f"描述 {prop['name']} 的外观...",
+                                key=f"prop_desc_{i}_{prop['name']}"
+                            )
+                            if f"shot_{i}_prop_descs" not in st.session_state:
+                                st.session_state[f"shot_{i}_prop_descs"] = {}
+                            st.session_state[f"shot_{i}_prop_descs"][prop['name']] = prop_desc
+                    else:
+                        st.session_state.pop(f"shot_{i}_prop_descs", None)
 
     st.divider()
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        if st.button("← 上一步", use_container_width=True):
+        if st.button("← 上一步", width='stretch'):
             st.session_state.current_step = 2
             st.rerun()
     with col3:
-        if st.button("下一步：生成视频 →", type="primary", use_container_width=True):
+        if st.button("下一步：生成视频 →", type="primary", width='stretch'):
             # 收集新结构的 resource_mapping
             resource_mapping = {
                 'global_character_mapping': dict(st.session_state.global_char_mapping),
@@ -1779,13 +1683,13 @@ elif current_step == 4:
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        if st.button("← 上一步", use_container_width=True):
+        if st.button("← 上一步", width='stretch'):
             st.session_state._generating = False
             st.session_state._generation_running = False
             st.session_state.current_step = 3
             st.rerun()
     with col2:
-        if st.button("🎬 开始生成视频", type="primary", use_container_width=True,
+        if st.button("🎬 开始生成视频", type="primary", width='stretch',
                      disabled=st.session_state.get('_generating', False)):
             st.session_state._generating = True
             st.session_state._generation_running = False
@@ -1911,7 +1815,7 @@ elif current_step == 5:
                             video_path = os.path.join(output_dir, video_file)
                             st.video(video_path)
                             st.caption(f"📽️ 分镜 {shot_id}")
-                            if st.button(f"🔄 重做", key=f"redo_{video_file}", use_container_width=True):
+                            if st.button(f"🔄 重做", key=f"redo_{video_file}", width='stretch'):
                                 os.remove(video_path)
                                 for f in os.listdir(output_dir):
                                     if f.startswith(f"shot_{shot_id:03d}") and (f.endswith('.wav') or f.endswith('.mp4')):
@@ -1940,17 +1844,17 @@ elif current_step == 5:
     # 批量重做：返回步骤4重新生成所有缺失的分镜
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        if st.button("← 上一步", use_container_width=True):
+        if st.button("← 上一步", width='stretch'):
             st.session_state.current_step = 4
             st.rerun()
     with col2:
-        if st.button("🎬 批量重做缺失分镜", use_container_width=True):
+        if st.button("🎬 批量重做缺失分镜", width='stretch'):
             # 回到步骤4，force模式下会清理并重新生成
             st.session_state._force_regenerate = True
             st.session_state.current_step = 4
             st.rerun()
     with col3:
-        if st.button("📦 导出视频", type="primary", use_container_width=True):
+        if st.button("📦 导出视频", type="primary", width='stretch'):
             st.success(f"✅ 视频已导出到 {output_dir}")
 
 
@@ -1958,7 +1862,7 @@ elif current_step == 5:
 with st.sidebar:
     st.markdown("### 🎯 快速操作")
     
-    if st.button("🏠 返回首页", use_container_width=True):
+    if st.button("🏠 返回首页", width='stretch'):
         st.session_state.current_step = 0
         st.rerun()
 
@@ -1968,7 +1872,7 @@ with st.sidebar:
     if st.session_state.current_task_id:
         st.markdown("### 📋 当前任务")
         st.caption(f"ID: {st.session_state.current_task_id}")
-        if st.button("🆕 开始新任务", use_container_width=True, type="secondary"):
+        if st.button("🆕 开始新任务", width='stretch', type="secondary"):
             st.session_state.current_task_id = None
             st.session_state.shots = []
             st.session_state.resource_mapping = {}
@@ -2010,7 +1914,7 @@ with st.sidebar:
     st.markdown(f"{sd_key_status} 视频生成API")
     st.caption(f"模型: {config.SEEDANCE_MODEL}")
     
-    if st.button("⚙️ 修改API配置", use_container_width=True, type="secondary"):
+    if st.button("⚙️ 修改API配置", width='stretch', type="secondary"):
         st.session_state.show_api_config = True
         st.rerun()
     
@@ -2034,7 +1938,7 @@ with st.sidebar:
         st.session_state.sidebar_show_add_char = False
 
     if not st.session_state.sidebar_show_add_char:
-        if st.button("➕ 添加角色", use_container_width=True):
+        if st.button("➕ 添加角色", width='stretch'):
             st.session_state.sidebar_show_add_char = True
             st.rerun()
     else:
@@ -2049,9 +1953,9 @@ with st.sidebar:
 
             c1, c2 = st.columns(2)
             with c1:
-                submitted = st.form_submit_button("✅ 添加", type="primary", use_container_width=True)
+                submitted = st.form_submit_button("✅ 添加", type="primary", width='stretch')
             with c2:
-                cancelled = st.form_submit_button("❌ 取消", use_container_width=True)
+                cancelled = st.form_submit_button("❌ 取消", width='stretch')
 
             if submitted:
                 if name and image_path:
