@@ -5,7 +5,7 @@
 import os
 import json
 import subprocess
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -17,11 +17,14 @@ class AudioProcessor:
     @staticmethod
     def get_ffmpeg_path():
         """获取FFmpeg可执行文件路径"""
-        # 优先使用项目自带的FFmpeg
-        project_ffmpeg = os.path.join(os.path.dirname(__file__), "ffmpeg", "bin", "ffmpeg.exe")
-        if os.path.exists(project_ffmpeg):
-            return project_ffmpeg
-        # 如果项目内没有，尝试使用系统PATH中的
+        base = os.path.dirname(__file__)
+        candidates = [
+            os.path.join(base, "ffmpeg", "bin", "ffmpeg.exe"),
+            os.path.join(base, "ffmpeg", "ffmpeg.exe"),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
         return "ffmpeg"
     
     @staticmethod
@@ -36,7 +39,8 @@ class AudioProcessor:
                 timeout=5
             )
             return result.returncode == 0
-        except Exception:
+        except Exception as e:
+            logger.warning("FFmpeg检查失败: %s", e)
             return False
 
     @staticmethod
@@ -243,7 +247,9 @@ class AudioProcessor:
     @staticmethod
     def get_video_codec_info(video_path: str) -> Dict:
         """使用 ffprobe 获取视频编码信息"""
-        ffprobe_path = AudioProcessor.get_ffmpeg_path().replace('ffmpeg', 'ffprobe')
+        ffprobe_path = os.path.join(os.path.dirname(AudioProcessor.get_ffmpeg_path()), 'ffprobe')
+        if os.name == 'nt':
+            ffprobe_path += '.exe'
         if not os.path.exists(ffprobe_path):
             ffprobe_path = 'ffprobe'
 
@@ -277,7 +283,9 @@ class AudioProcessor:
     @staticmethod
     def get_audio_duration(audio_path: str) -> float:
         """获取音频文件时长（秒），失败返回0"""
-        ffprobe_path = AudioProcessor.get_ffmpeg_path().replace('ffmpeg', 'ffprobe')
+        ffprobe_path = os.path.join(os.path.dirname(AudioProcessor.get_ffmpeg_path()), 'ffprobe')
+        if os.name == 'nt':
+            ffprobe_path += '.exe'
         if not os.path.exists(ffprobe_path):
             ffprobe_path = 'ffprobe'
         try:
@@ -289,8 +297,8 @@ class AudioProcessor:
             if result.returncode == 0:
                 info = json.loads(result.stdout.decode('utf-8'))
                 return float(info.get('format', {}).get('duration', 0))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("获取音频时长失败 %s: %s", audio_path, e)
         return 0.0
 
 

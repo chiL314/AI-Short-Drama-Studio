@@ -243,14 +243,26 @@ def generate_shots_from_script(script_content: str, shot_count: int, episode_num
         "Content-Type": "application/json"
     }
 
-    response = requests.post(
-        cfg.DEEPSEEK_API_URL,
-        json=payload,
-        headers=headers,
-        timeout=300
-    )
+    response = None
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                cfg.DEEPSEEK_API_URL,
+                json=payload,
+                headers=headers,
+                timeout=300
+            )
+            response.raise_for_status()
+            break
+        except Exception as e:
+            last_error = e
+            logger.warning("DeepSeek API请求失败（第%d次）: %s", attempt + 1, e)
+            if attempt < 2:
+                import time
+                time.sleep(3)
 
-    if not response.ok:
+    if response is None or not response.ok:
         error_detail = response.text[:500]
         logger.error("API请求失败 HTTP %d: %s", response.status_code, error_detail)
         raise ValueError(

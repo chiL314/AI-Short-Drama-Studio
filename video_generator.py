@@ -6,6 +6,8 @@ import concurrent.futures
 from typing import List, Dict, Callable, Optional
 import config as cfg
 from character_pool import get_character_pool
+from scene_pool import get_scene_pool
+from prop_pool import get_prop_pool
 from utils.image_utils import image_to_base64
 from utils.logger import get_logger
 from tts_service import get_tts_service
@@ -38,6 +40,10 @@ def generate_single_video(shot: Dict, task_id: str, config: Dict = None, resourc
     if shot_payload is None:
         # DRY RUN 模式 —— _build_shot_payload 已完成所有日志输出
         return True
+
+    if not cfg.SEEDANCE_API_KEY:
+        logger.error("分镜%d 未配置 Seedance API Key", shot_id)
+        return False
 
     # 提交 + 轮询 + 下载
     headers = {
@@ -212,8 +218,9 @@ def poll_task_result(task_id: str, headers: dict, max_wait: int = 600) -> str:
                 logger.error("任务失败（耗时%ds）: %s", elapsed, error_msg)
                 return None
             else:
-                logger.info("任务状态: %s（已等待%ds/%ds），继续等待...", status, elapsed, max_wait)
-                time.sleep(5)
+                delay = min(3 + elapsed // 30, 15)
+                logger.info("任务状态: %s（已等待%ds/%ds），%ds后重试...", status, elapsed, max_wait, delay)
+                time.sleep(delay)
 
         except Exception as e:
             elapsed = int(time.time() - start_time)
@@ -225,17 +232,25 @@ def poll_task_result(task_id: str, headers: dict, max_wait: int = 600) -> str:
     return None
 
 
-def download_video(video_url: str, save_path: str) -> None:
-    """下载视频文件"""
-    logger.info("正在下载视频到: %s", save_path)
-    response = requests.get(video_url, stream=True, timeout=120)
-    response.raise_for_status()
+def download_video(video_url: str, save_path: str, max_retries: int = 3) -> None:
+    """下载视频文件，支持自动重试"""
+    for attempt in range(max_retries):
+        try:
+            logger.info("正在下载视频到: %s（第%d次）", save_path, attempt + 1)
+            response = requests.get(video_url, stream=True, timeout=120)
+            response.raise_for_status()
 
-    with open(save_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+            with open(save_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
-    logger.info("视频已保存: %s", save_path)
+            logger.info("视频已保存: %s", save_path)
+            return
+        except Exception as e:
+            logger.error("视频下载失败（第%d次）: %s", attempt + 1, e)
+            if attempt < max_retries - 1:
+                time.sleep(3)
+    raise RuntimeError(f"视频下载失败，已重试 {max_retries} 次: {save_path}")
 
 
 def _build_shot_payload(shot: Dict, task_id: str, config: Dict = None, resource_mapping: Dict = None) -> Optional[Dict]:
@@ -332,7 +347,6 @@ def _build_shot_payload(shot: Dict, task_id: str, config: Dict = None, resource_
 
     # 注入场景描述（仅文本，不加入ref_images以免干扰人脸一致性）
     if scene_name:
-        from scene_pool import get_scene_pool
         scene_pool = get_scene_pool(cfg.RESOURCE_POOL_DIR)
         scene_data = scene_pool.get_by_name(scene_name)
         if scene_data:
@@ -348,7 +362,6 @@ def _build_shot_payload(shot: Dict, task_id: str, config: Dict = None, resource_
 
     # 注入物品描述（仅文本，不加入ref_images）
     if prop_names:
-        from prop_pool import get_prop_pool
         prop_pool = get_prop_pool(cfg.RESOURCE_POOL_DIR)
         prop_descs_from_pool = []
         for prop_name in prop_names:
@@ -512,6 +525,10 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
     tts_audio_files = []
 
     if pending_count > 0:
+        if not cfg.SEEDANCE_API_KEY:
+            logger.error("未配置 Seedance API Key")
+            return 0, [], []
+
         logger.info("并发生成%d个视频（分阶段：串行提交→并发轮询）...", pending_count)
 
         # Phase 1: 串行提交所有任务（间隔1秒防止限流）
@@ -792,8 +809,8 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
             except Exception as e:
                 logger.error("字幕处理失败: %s", e)
 
-        # 视频合并
-        if config.get('export_mode') == 'merged' and len(video_files) > 1:
+        # 视频合并（DRY_RUN 模式下跳过）
+        if config.get('export_mode') == 'merged' and len(video_files) > 1 and not cfg.DRY_RUN:
             logger.info("开始合并视频...")
             if progress_callback:
                 progress_callback(total, total, "merging", 0)

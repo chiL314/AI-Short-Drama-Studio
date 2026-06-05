@@ -21,8 +21,8 @@ if errorlevel 1 (
 
 echo.
 echo [步骤 2/4] 检查FFmpeg...
-if not exist "ffmpeg\bin\ffmpeg.exe" (
-    echo ❌ 未找到 ffmpeg\bin\ffmpeg.exe
+if not exist "ffmpeg\ffmpeg.exe" if not exist "ffmpeg\bin\ffmpeg.exe" (
+    echo ❌ 未找到 ffmpeg.exe（请放到 ffmpeg\ 或 ffmpeg\bin\ 目录下）
     echo 请确保FFmpeg已放置在项目目录
     pause
     exit /b 1

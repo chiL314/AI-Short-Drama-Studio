@@ -198,7 +198,7 @@ source .venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 
 # 4. 安装 FFmpeg
-# Windows: 下载 ffmpeg.exe 放到项目根目录的 ffmpeg/bin/ 下
+# Windows: 下载 ffmpeg.exe 放到项目根目录的 ffmpeg/ 下，或加入系统 PATH
 #          https://ffmpeg.org/download.html
 # Mac:    brew install ffmpeg
 # Linux:  sudo apt install ffmpeg

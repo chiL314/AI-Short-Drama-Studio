@@ -1101,13 +1101,12 @@ elif current_step == 3:
                     help="选择图片后，路径会自动填入上方"
                 )
                 if uploaded_file is not None:
-                    # 保存上传的文件到临时位置
                     import tempfile
                     temp_dir = tempfile.gettempdir()
                     temp_path = os.path.join(temp_dir, uploaded_file.name)
                     with open(temp_path, "wb") as f:
                         f.write(uploaded_file.getbuffer())
-                    char_image = temp_path
+                    st.session_state.char_image_temp = temp_path
                     st.success(f"✅ 已选择: {uploaded_file.name}")
                     st.code(f"路径: {temp_path}")
                     if st.form_submit_button("✅ 确认使用此图片", key="char_confirm_btn"):
@@ -1118,16 +1117,18 @@ elif current_step == 3:
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.form_submit_button("✅ 添加", type="primary"):
-                    if char_name and char_image:
+                    image_path = st.session_state.get('char_image_temp') or char_image
+                    if char_name and image_path:
                         try:
                             char_pool.add(
                                 name=char_name,
                                 appearance=char_appearance,
                                 clothes=char_clothes,
                                 character=char_character,
-                                image_path=char_image,
+                                image_path=image_path,
                                 tags=[t.strip() for t in char_tags.split(",") if t.strip()]
                             )
+                            st.session_state.pop('char_image_temp', None)
                             st.success(f"✅ 角色 '{char_name}' 添加成功！")
                             st.session_state.show_add_character = False
                             st.session_state.show_file_picker_char = False
@@ -1195,7 +1196,7 @@ elif current_step == 3:
                     temp_path = os.path.join(temp_dir, uploaded_file.name)
                     with open(temp_path, "wb") as f:
                         f.write(uploaded_file.getbuffer())
-                    scene_image = temp_path
+                    st.session_state.scene_image_temp = temp_path
                     st.success(f"✅ 已选择: {uploaded_file.name}")
                     st.code(f"路径: {temp_path}")
                     if st.form_submit_button("✅ 确认使用此图片", key="scene_confirm_btn"):
@@ -1204,13 +1205,15 @@ elif current_step == 3:
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.form_submit_button("✅ 添加", type="primary"):
-                    if scene_name and scene_image:
+                    image_path = st.session_state.get('scene_image_temp') or scene_image
+                    if scene_name and image_path:
                         try:
                             scene_pool.add(
                                 name=scene_name,
                                 description=scene_desc,
-                                image_path=scene_image
+                                image_path=image_path
                             )
+                            st.session_state.pop('scene_image_temp', None)
                             st.success(f"✅ 场景 '{scene_name}' 添加成功！")
                             st.session_state.show_add_scene = False
                             st.session_state.show_file_picker_scene = False
@@ -1278,7 +1281,7 @@ elif current_step == 3:
                     temp_path = os.path.join(temp_dir, uploaded_file.name)
                     with open(temp_path, "wb") as f:
                         f.write(uploaded_file.getbuffer())
-                    prop_image = temp_path
+                    st.session_state.prop_image_temp = temp_path
                     st.success(f"✅ 已选择: {uploaded_file.name}")
                     st.code(f"路径: {temp_path}")
                     if st.form_submit_button("✅ 确认使用此图片", key="prop_confirm_btn"):
@@ -1287,13 +1290,15 @@ elif current_step == 3:
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.form_submit_button("✅ 添加", type="primary"):
-                    if prop_name and prop_image:
+                    image_path = st.session_state.get('prop_image_temp') or prop_image
+                    if prop_name and image_path:
                         try:
                             prop_pool.add(
                                 name=prop_name,
                                 description=prop_desc,
-                                image_path=prop_image
+                                image_path=image_path
                             )
+                            st.session_state.pop('prop_image_temp', None)
                             st.success(f"✅ 物品 '{prop_name}' 添加成功！")
                             st.session_state.show_add_prop = False
                             st.session_state.show_file_picker_prop = False

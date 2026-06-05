@@ -3,9 +3,8 @@ TTS配音服务模块
 支持多种TTS服务商：阿里云、讯飞、Azure
 """
 import os
-import json
 import requests
-from typing import Dict, List, Optional
+from typing import Dict, List
 import config as cfg
 from utils.logger import get_logger
 
@@ -45,8 +44,6 @@ class TTSService:
     
     def _fetch_aliyun_voices(self) -> List[Dict]:
         """从阿里云TTS API获取音色列表"""
-        import requests
-        
         # 检查是否配置了API密钥
         if not cfg.TTS_ALIYUN_TOKEN:
             return []  # 未配置，返回空列表
@@ -157,18 +154,7 @@ class TTSService:
         return audio_path
     
     def _aliyun_tts(self, text: str, voice_id: str, output_path: str = None) -> str:
-        """阿里云TTS
-        
-        Args:
-            text: 文本
-            voice_id: 音色ID
-            output_path: 输出路径
-            
-        Returns:
-            音频文件路径
-        """
-        import requests
-        
+        """阿里云TTS"""
         if not cfg.TTS_ALIYUN_TOKEN:
             raise ValueError("未配置阿里云TTS Token，请在API配置中设置")
         
@@ -200,7 +186,19 @@ class TTSService:
             }
             
             logger.info("正在调用阿里云TTS: %s, 文本: %s", voice_id, text[:50])
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            last_error = None
+            for attempt in range(3):
+                try:
+                    response = requests.post(url, json=payload, headers=headers, timeout=30)
+                    break
+                except requests.exceptions.RequestException as e:
+                    last_error = e
+                    if attempt < 2:
+                        logger.warning("TTS请求失败（第%d次），重试中...", attempt + 1)
+                        import time
+                        time.sleep(2)
+            if last_error:
+                raise last_error
             if response.status_code == 200:
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
