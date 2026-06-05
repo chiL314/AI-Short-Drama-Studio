@@ -111,26 +111,44 @@ class CharacterPool:
     
     def delete(self, char_id: str) -> bool:
         """
-        删除角色
-        
+        删除角色（同时清理关联的图片文件）
+
         Args:
             char_id: 角色ID
-        
+
         Returns:
             是否删除成功
         """
         characters = self._read_json()
-        original_count = len(characters)
-        
-        characters = [c for c in characters if c['id'] != char_id]
-        
-        if len(characters) == original_count:
+
+        # 找到要删除的角色，记录图片路径
+        target = next((c for c in characters if c['id'] == char_id), None)
+        if target is None:
             logger.warning("角色不存在: %s", char_id)
             return False
 
+        characters = [c for c in characters if c['id'] != char_id]
         self._write_json(characters)
+
+        # 删除关联的图片文件（仅清理 resource_pool/images/ 下的文件）
+        image_path = target.get('image_path', '')
+        if image_path:
+            self._cleanup_image(image_path)
+
         logger.info("删除角色成功: %s", char_id)
         return True
+
+    def _cleanup_image(self, image_path: str):
+        """删除 resource_pool/images/ 目录下的图片文件"""
+        images_dir = self.pool_dir / "images"
+        try:
+            abs_image = os.path.abspath(image_path)
+            abs_dir = os.path.abspath(str(images_dir))
+            if abs_image.startswith(abs_dir) and os.path.exists(image_path):
+                os.remove(image_path)
+                logger.info("已清理图片文件: %s", image_path)
+        except OSError as e:
+            logger.warning("清理图片文件失败: %s", e)
     
     def update(self, char_id: str, **kwargs) -> bool:
         """

@@ -1,6 +1,7 @@
 # prop_pool.py - 物品池管理模块
 
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -76,26 +77,42 @@ class PropPool:
     
     def delete(self, prop_id: str) -> bool:
         """
-        删除物品
-        
+        删除物品（同时清理关联的图片文件）
+
         Args:
             prop_id: 物品ID
-        
+
         Returns:
             是否删除成功
         """
         props = self._read_json()
-        original_count = len(props)
-        
-        props = [p for p in props if p['id'] != prop_id]
-        
-        if len(props) == original_count:
+
+        target = next((p for p in props if p['id'] == prop_id), None)
+        if target is None:
             logger.warning("物品不存在: %s", prop_id)
             return False
 
+        props = [p for p in props if p['id'] != prop_id]
         self._write_json(props)
+
+        image_path = target.get('image_path', '')
+        if image_path:
+            self._cleanup_image(image_path)
+
         logger.info("删除物品成功: %s", prop_id)
         return True
+
+    def _cleanup_image(self, image_path: str):
+        """删除 resource_pool/images/ 目录下的图片文件"""
+        images_dir = self.pool_dir / "images"
+        try:
+            abs_image = os.path.abspath(image_path)
+            abs_dir = os.path.abspath(str(images_dir))
+            if abs_image.startswith(abs_dir) and os.path.exists(image_path):
+                os.remove(image_path)
+                logger.info("已清理图片文件: %s", image_path)
+        except OSError as e:
+            logger.warning("清理图片文件失败: %s", e)
 
     def get_by_name(self, name: str) -> Optional[Dict]:
         """
