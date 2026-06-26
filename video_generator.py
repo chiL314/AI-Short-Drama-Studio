@@ -2,7 +2,6 @@ import os
 import json
 import time
 import requests
-import concurrent.futures
 from typing import List, Dict, Callable, Optional
 import config as cfg
 from character_pool import get_character_pool
@@ -529,25 +528,25 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
             logger.error("未配置 Seedance API Key")
             return 0, [], []
 
-        logger.info("并发生成%d个视频（分阶段：串行提交→并发轮询）...", pending_count)
+        logger.info("串行生成%d个视频（逐个提交→等待完成→下一个）...", pending_count)
 
-        # Phase 1: 串行提交所有任务（间隔1秒防止限流）
         headers = {"Authorization": f"Bearer {cfg.SEEDANCE_API_KEY}",
                    "Content-Type": "application/json"}
-        submissions = []  # [(shot_id, video_file, shot, remote_task_id)]
 
         for shot_id, idx, video_file, shot, full_shot_mapping in generate_tasks:
             if progress_callback:
-                progress_callback(len(submissions), pending_count, "submitting", shot_id)
+                progress_callback(success_count, total, "submitting", shot_id)
 
             # 构建payload（与generate_single_video内部逻辑对齐）
             shot_payload = _build_shot_payload(shot, task_id, config, full_shot_mapping)
             if shot_payload is None:
                 logger.info("DRY RUN - 分镜%d 跳过提交", shot_id)
-                submissions.append((shot_id, video_file, shot, None))
+                if cfg.DRY_RUN:
+                    success_count += 1
+                    video_files.append(video_file)
                 continue
 
-            # 串行提交到API，带重试
+            # 提交到API，带重试
             remote_task_id = None
             for retry in range(cfg.MAX_RETRY):
                 try:
@@ -566,46 +565,24 @@ def batch_generate_videos(task_id: str, shots: List[Dict] = None, config: Dict =
                     if retry < cfg.MAX_RETRY - 1:
                         time.sleep(cfg.API_INTERVAL)
 
-            submissions.append((shot_id, video_file, shot, remote_task_id))
-            # 间隔1秒防止API限流
-            if len(generate_tasks) > 1:
-                time.sleep(1)
+            if not remote_task_id:
+                logger.error("分镜%d 提交失败，跳过", shot_id)
+                if progress_callback:
+                    progress_callback(success_count, total, "failed", shot_id)
+                continue
 
-        # Phase 2: 并发轮询所有已提交的任务
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(pending_count, 5)) as executor:
-            future_map = {}
-            for shot_id, video_file, shot, remote_task_id in submissions:
-                if remote_task_id is None:
-                    # DRY RUN 或提交失败的镜头
-                    if cfg.DRY_RUN:
-                        success_count += 1
-                        video_files.append(video_file)
-                        logger.info("DRY RUN - 分镜%d 完成", shot_id)
-                    else:
-                        logger.error("分镜%d 提交失败，跳过", shot_id)
-                    continue
-
-                future = executor.submit(_poll_and_download, remote_task_id, headers, video_file, shot_id)
-                future_map[future] = (shot_id, video_file, shot)
-
-            for future in concurrent.futures.as_completed(future_map):
-                shot_id, video_file, shot = future_map[future]
-                try:
-                    ok = future.result()
-                    if ok:
-                        success_count += 1
-                        video_files.append(video_file)
-                        logger.info("分镜%d 完成（%d/%d）", shot_id, success_count, total)
-                        if progress_callback:
-                            progress_callback(success_count, total, "done", shot_id)
-                    else:
-                        logger.error("分镜%d 失败", shot_id)
-                        if progress_callback:
-                            progress_callback(success_count, total, "failed", shot_id)
-                except Exception as e:
-                    logger.error("分镜%d 异常: %s", shot_id, e)
-                    if progress_callback:
-                        progress_callback(success_count, total, "failed", shot_id)
+            # 串行等待当前任务完成后再提交下一个
+            ok = _poll_and_download(remote_task_id, headers, video_file, shot_id)
+            if ok:
+                success_count += 1
+                video_files.append(video_file)
+                logger.info("分镜%d 完成（%d/%d）", shot_id, success_count, total)
+                if progress_callback:
+                    progress_callback(success_count, total, "done", shot_id)
+            else:
+                logger.error("分镜%d 失败", shot_id)
+                if progress_callback:
+                    progress_callback(success_count, total, "failed", shot_id)
 
     # ---------- 收集所有分镜的 TTS 条目信息（用于字幕时间轴）----------
     shot_tts_entries = {}  # shot_id -> [(text, audio_path), ...]

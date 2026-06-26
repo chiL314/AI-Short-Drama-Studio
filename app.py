@@ -914,6 +914,11 @@ elif current_step == 1:
                     script_preview="[示例分镜]",
                     shot_count=len(st.session_state.shots)
                 )
+                # 清除旧的角色映射
+                st.session_state.global_char_mapping = {}
+                st.session_state.global_char_descs = {}
+                st.session_state.global_voice_mapping = {}
+                st.session_state.resource_mapping = {}
                 # 保存分镜到任务目录
                 with open(task_manager.shots_path(st.session_state.current_task_id), 'w', encoding='utf-8') as f:
                     json.dump(st.session_state.shots, f, ensure_ascii=False, indent=2)
@@ -964,6 +969,11 @@ elif current_step == 1:
                         progress_text.success(f"✅ AI返回成功（耗时{elapsed:.1f}秒），正在解析分镜...")
 
                         st.session_state.shots = shots
+                        # 清除旧的角色映射（新分镜可能有不同的角色）
+                        st.session_state.global_char_mapping = {}
+                        st.session_state.global_char_descs = {}
+                        st.session_state.global_voice_mapping = {}
+                        st.session_state.resource_mapping = {}
                         st.success(f"✅ 成功生成 {len(shots)} 个分镜！")
                         st.session_state.current_step = 2
                         st.rerun()
@@ -1877,6 +1887,9 @@ with st.sidebar:
             st.session_state.shots = []
             st.session_state.resource_mapping = {}
             st.session_state.generated_videos = []
+            st.session_state.global_char_mapping = {}
+            st.session_state.global_char_descs = {}
+            st.session_state.global_voice_mapping = {}
             st.session_state.current_step = 0
             st.rerun()
 
