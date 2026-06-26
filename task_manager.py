@@ -13,6 +13,7 @@
 """
 import json
 import os
+import shutil
 from datetime import datetime
 
 OUTPUT_DIR = "./output"
@@ -104,3 +105,12 @@ def video_path(task_id: str, shot_id: int) -> str:
 def merged_path(task_id: str) -> str:
     """获取合并视频路径"""
     return os.path.join(OUTPUT_DIR, task_id, "merged.mp4")
+
+
+def delete_task(task_id: str) -> bool:
+    """删除任务目录及所有文件"""
+    task_dir = os.path.join(OUTPUT_DIR, task_id)
+    if os.path.exists(task_dir):
+        shutil.rmtree(task_dir)
+        return True
+    return False

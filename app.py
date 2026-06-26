@@ -705,6 +705,17 @@ with step_container:
                 st.write(step_name)
 
 
+def _copy_to_pool_images(src_path: str, name: str) -> str:
+    """将图片复制到 resource_pool/images/ 目录，返回目标路径"""
+    images_dir = os.path.join(str(config.RESOURCE_POOL_DIR), "images")
+    os.makedirs(images_dir, exist_ok=True)
+    ext = os.path.splitext(src_path)[1] or ".png"
+    dest = os.path.join(images_dir, f"{name}{ext}")
+    if os.path.abspath(src_path) != os.path.abspath(dest):
+        shutil.copy2(src_path, dest)
+    return dest
+
+
 # ==================== 步骤0: 参数配置 ====================
 if current_step == 0:
     st.markdown("## ⚙️ 视频生成配置")
@@ -1073,16 +1084,6 @@ elif current_step == 3:
     COLS_PER_ROW = 4
     MAX_ROWS = 3
     MAX_VISIBLE = COLS_PER_ROW * MAX_ROWS  # 12
-
-    def _copy_to_pool_images(src_path, name):
-        """将图片复制到 resource_pool/images/ 目录"""
-        images_dir = os.path.join(str(config.RESOURCE_POOL_DIR), "images")
-        os.makedirs(images_dir, exist_ok=True)
-        ext = os.path.splitext(src_path)[1] or ".png"
-        dest = os.path.join(images_dir, f"{name}{ext}")
-        if os.path.abspath(src_path) != os.path.abspath(dest):
-            shutil.copy2(src_path, dest)
-        return dest
 
     def _render_resource_card(item, pool, res_type):
         """渲染单个资源卡片"""
@@ -1904,14 +1905,39 @@ with st.sidebar:
             video_count = 0
             if os.path.exists(task_dir):
                 video_count = len([f for f in os.listdir(task_dir) if f.endswith('.mp4')])
-            col_t, col_v = st.columns([3, 1])
-            with col_t:
-                st.caption(f"{t['task_id']} — {t.get('shot_count', 0)}镜/{video_count}视频")
-            with col_v:
-                if st.button("📂", key=f"open_task_{t['task_id']}", help="查看此任务"):
-                    st.session_state.current_task_id = t['task_id']
-                    st.session_state.current_step = 5
-                    st.rerun()
+            delete_key = f"del_confirm_{t['task_id']}"
+            if st.session_state.get(delete_key):
+                st.caption(f"确认删除 {t['task_id']}？")
+                col_y, col_n = st.columns(2)
+                with col_y:
+                    if st.button("✅ 确认", key=f"del_yes_{t['task_id']}"):
+                        task_manager.delete_task(t['task_id'])
+                        if st.session_state.current_task_id == t['task_id']:
+                            st.session_state.current_task_id = None
+                            st.session_state.shots = []
+                            st.session_state.resource_mapping = {}
+                            st.session_state.current_step = 0
+                        st.session_state[delete_key] = False
+                        st.rerun()
+                with col_n:
+                    if st.button("❌ 取消", key=f"del_no_{t['task_id']}"):
+                        st.session_state[delete_key] = False
+                        st.rerun()
+            else:
+                col_t, col_a = st.columns([5, 2])
+                with col_t:
+                    st.caption(f"{t['task_id']} — {t.get('shot_count', 0)}镜/{video_count}视频")
+                with col_a:
+                    ca1, ca2 = st.columns(2)
+                    with ca1:
+                        if st.button("📂", key=f"open_task_{t['task_id']}", help="查看此任务"):
+                            st.session_state.current_task_id = t['task_id']
+                            st.session_state.current_step = 5
+                            st.rerun()
+                    with ca2:
+                        if st.button("🗑️", key=f"del_btn_{t['task_id']}", help="删除此任务"):
+                            st.session_state[delete_key] = True
+                            st.rerun()
     else:
         st.caption("暂无历史任务")
 
@@ -1955,14 +1981,44 @@ with st.sidebar:
             st.session_state.sidebar_show_add_char = True
             st.rerun()
     else:
+        # 文件上传（表单外，响应式）
+        uploaded_file = st.file_uploader(
+            "📁 上传角色图片",
+            type=['jpg', 'jpeg', 'png'],
+            key="sidebar_char_uploader",
+            help="选择角色的参考图片"
+        )
+        uploaded_path = ""
+        if uploaded_file is not None:
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, uploaded_file.name)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.image(temp_path, width='stretch')
+            st.caption(f"✅ 已选择: {uploaded_file.name}")
+            uploaded_path = temp_path
+
         with st.form("sidebar_add_char_form"):
             st.subheader("快速添加角色")
-            name = st.text_input("角色名称", placeholder="例如：林风")
-            appearance = st.text_area("外观描述", placeholder="例如：男性，25岁，短发，身材高大，五官轮廓分明")
-            clothes = st.text_input("服装描述", placeholder="例如：深灰色连帽卫衣、黑色长裤")
-            character = st.text_input("性格描述", placeholder="例如：沉稳内敛，眼神锐利")
-            image_path = st.text_input("图片路径", placeholder="D:/角色库/男主A.jpg")
-            tags = st.text_input("标签（逗号分隔）", placeholder="例如：主角,现代,悬疑")
+            char_name = st.text_input("角色名称 *", placeholder="例如：林风")
+            appearance_template = st.selectbox(
+                "外观模板（可选）",
+                ["自定义", "男性，25-30岁，短发，身材高大，五官立体",
+                 "女性，20-25岁，长发，身材苗条，气质优雅",
+                 "男性，30-40岁，成熟稳重，胡须，西装革履",
+                 "女性，25-35岁，职业装，干练短发",
+                 "男性，18-22岁，阳光帅气，运动装"],
+                index=0, help="选择预设模板或自定义"
+            )
+            if appearance_template != "自定义":
+                char_appearance = st.text_area("外观描述", value=appearance_template, label_visibility="collapsed")
+            else:
+                char_appearance = st.text_area("外观描述", placeholder="例如：男性，25岁，短发，身材高大")
+            char_clothes = st.text_input("服装描述", placeholder="例如：深灰色连帽卫衣、黑色长裤")
+            char_character = st.text_input("性格描述", placeholder="例如：沉稳内敛，眼神锐利")
+            char_image = st.text_input("图片路径 *", value=uploaded_path, placeholder="上传图片或手动输入路径")
+            char_tags = st.text_input("标签（逗号分隔）", placeholder="例如：主角,现代,悬疑")
 
             c1, c2 = st.columns(2)
             with c1:
@@ -1971,23 +2027,25 @@ with st.sidebar:
                 cancelled = st.form_submit_button("❌ 取消", width='stretch')
 
             if submitted:
-                if name and image_path:
+                image_path = uploaded_path or char_image
+                if char_name and image_path:
                     try:
+                        dest_path = _copy_to_pool_images(image_path, char_name)
                         char_pool.add(
-                            name=name,
-                            appearance=appearance,
-                            clothes=clothes,
-                            character=character,
-                            image_path=image_path,
-                            tags=[t.strip() for t in tags.split(",") if t.strip()]
+                            name=char_name,
+                            appearance=char_appearance,
+                            clothes=char_clothes,
+                            character=char_character,
+                            image_path=dest_path,
+                            tags=[t.strip() for t in char_tags.split(",") if t.strip()]
                         )
-                        st.success(f"✅ 角色 '{name}' 添加成功！")
+                        st.success(f"✅ 角色 '{char_name}' 添加成功！")
                         st.session_state.sidebar_show_add_char = False
                         st.rerun()
                     except ValueError as e:
                         st.error(f"❌ {e}")
                 else:
-                    st.error("请填写角色名称和图片路径")
+                    st.error("请填写角色名称和选择图片")
 
             if cancelled:
                 st.session_state.sidebar_show_add_char = False
